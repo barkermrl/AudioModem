@@ -66,6 +66,7 @@ count = 0
 for key in X_dict:
 	for symbol in X_dict[key]:	
 		byte += QPSK_bits[(np.abs(QPSK_symbols - symbol)).argmin()]
+        bits += 
 	
 		count += 1
 		if count == 4:
