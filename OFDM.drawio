@@ -1,1 +1,25 @@
-<mxfile host="app.diagrams.net" modified="2022-05-15T13:44:59.542Z" agent="5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.0.0 Safari/537.36" version="18.0.4" etag="TlRn2N_zZxrO0yGYrd7M" type="github"><diagram id="NE1ZZdJ1cOcaLDEMMfU9">UzV2zq1wL0osyPDNT0nNUTV2VTV2LsrPL4GwciucU3NyVI0MMlNUjV1UjYwMgFjVyA2HrCFY1qAgsSg1rwSLBiADYTaQg2Y1AA==</diagram></mxfile>
+<mxfile host="app.diagrams.net" modified="2022-05-15T13:47:02.613Z" agent="5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.0.0 Safari/537.36" etag="G9jUVDWHi-Q5L171VTcR" version="18.0.4" type="github">
+  <diagram id="NE1ZZdJ1cOcaLDEMMfU9" name="Page-1">
+    <mxGraphModel dx="946" dy="520" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="lLQdPIWRqs0I19GE3m6Y-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lLQdPIWRqs0I19GE3m6Y-1" target="lLQdPIWRqs0I19GE3m6Y-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lLQdPIWRqs0I19GE3m6Y-1" value="Binary data&lt;br&gt;010001010" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="130" y="150" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="lLQdPIWRqs0I19GE3m6Y-6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lLQdPIWRqs0I19GE3m6Y-3" target="lLQdPIWRqs0I19GE3m6Y-5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lLQdPIWRqs0I19GE3m6Y-3" value="Constellation mapping" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="350" y="150" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="lLQdPIWRqs0I19GE3m6Y-5" value="Subcarrier mapping&lt;br&gt;(maintain conjugate symmetry for baseband)" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="550" y="150" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
