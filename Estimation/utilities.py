@@ -14,8 +14,9 @@ def gen_chirp(f0, f1, T, save = False, play = True, form = 'logarithmic', repiti
         write('chirp_{}_{}_{}.wav'.format(form, f0, f1), fs, w)
     if play == True:
         sd.play(w, fs, blocking = True)
+    return w
 
-def record(title, duration = 5, save = False, plot = False):
+def record(title = 'test', duration = 5, save = False, plot = False):
     fs = 44100
     r = sd.rec(int(duration*fs), samplerate = fs, channels = 1, blocking = True).flatten()
     if save  == True:
@@ -24,4 +25,12 @@ def record(title, duration = 5, save = False, plot = False):
         plt.plot(np.arange(0, int(duration*fs)), r)
         plt.show()
     return r
-    
+
+def conv(r, w):
+    fs = 44100
+    T = len(w)/fs
+    w_inv = np.flip(w)
+    convolution = np.conv(r,w_inv)
+    t = np.arange(0, int(T*fs))/fs
+    plt.plot(t, convolution)
+    plt.show()
