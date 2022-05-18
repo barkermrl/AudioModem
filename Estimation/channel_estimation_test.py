@@ -83,7 +83,7 @@ print('RECORDING FINISHED')
 
 # Synchronise to find the start of the chirp in the received sample
 signal_start_index = get_chirp_end_index(test_chirp, received_chirp) - duration*fs
-section_length = 8192
+section_length = 1024
 num_sections = 1 + test_chirp.size//section_length
 
 section_start_indicies = signal_start_index + np.linspace(0, section_length*num_sections, num_sections+1)
@@ -95,9 +95,9 @@ received_chirp_sections = split_sample(received_chirp[signal_start_index:], sect
 assert len(received_chirp_sections.keys()) >= len(test_chirp_sections.keys())		# Test to ensure the received chirp has more sections than the transmitted chirp i.e. from the recording after the test chirp stops
 
 # Plot the received signal and the indicies of the section it's divided into
-plt.plot(received_chirp, color = 'blue')
-plt.vlines(section_start_indicies, ymin = 0, ymax = 1, color = 'red')
-plt.show()
+#plt.plot(received_chirp, color = 'blue')
+#plt.vlines(section_start_indicies, ymin = 0, ymax = 1, color = 'red')
+#plt.show()
 
 
 # Find the DFT of each section
@@ -125,3 +125,11 @@ for section_number in test_chirp_sections.keys():
 		H_estimated_sections[bin_start_freq] = Y/X
 	except:			# In case one of the sections in X is full of zeroes, giving a divide by zero error
 		H_estimated_sections[bin_start_freq] = np.zeros(section_length)
+
+H_full = np.concatenate(list(H_estimated_sections.values()))
+freq_samples = np.linspace(chirp_f_start, chirp_f_end, num_sections*section_length)
+
+plt.plot(freq_samples, np.abs(H_full))
+plt.xlabel('Frequency (Hz)')
+plt.ylabel('|H(f)|')
+plt.show()
