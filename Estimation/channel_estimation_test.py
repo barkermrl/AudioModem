@@ -41,14 +41,13 @@ def samples_from_wav(filename):
 
 # Finds the start index of the received chirp by convolving with the time-reversed known chirp
 # Returns the start index of the chirp in the unknown signal array
-def get_chirp_start_index(sent_chirp, received_chirp):
+def get_chirp_end_index(sent_chirp, received_chirp):
 	convolution = np.convolve(received_chirp, np.flip(sent_chirp))
-	signal_start_index = np.argmax(abs(convolution))
+	c = np.abs(convolution)
 
-	plt.plot(convolution)
-	plt.show()
+	signal_end_index = c.argmax()
 
-	return signal_start_index
+	return signal_end_index
 
 # Split an audio sample into a number of equilength sections
 # Returns a dictionary where the key 'i' contains the i-th section of the sample
@@ -75,7 +74,7 @@ fs = 44100
 chirp_f_start = 0
 chirp_f_end = 20000
 duration = 2
-time_samples = np.arange(0, int(duration), 1/fs)
+time_samples = np.arange(0, duration, 1/fs)
 
 test_chirp = chirp(time_samples, chirp_f_start, duration, chirp_f_end, method = 'linear')
 print('RECORDING')
@@ -83,8 +82,8 @@ received_chirp = sd.rec(int(2.5*duration*fs), samplerate = fs, channels = 1, blo
 print('RECORDING FINISHED')
 
 # Synchronise to find the start of the chirp in the received sample
-signal_start_index = get_chirp_start_index(test_chirp, received_chirp)
-section_length = 1024
+signal_start_index = get_chirp_end_index(test_chirp, received_chirp) - duration*fs
+section_length = 8192
 num_sections = 1 + test_chirp.size//section_length
 
 section_start_indicies = signal_start_index + np.linspace(0, section_length*num_sections, num_sections+1)
