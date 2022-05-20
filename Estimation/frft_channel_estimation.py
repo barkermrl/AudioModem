@@ -106,12 +106,6 @@ print('α_opt = {}'.format(alpha_opt))
 Y_alpha_opt = frft(received_chirp_trunc, alpha_opt)
 print('FrFT at α_opt is: {}'.format(Y_alpha_opt))
 
-# Estimate the channel coefficients by smoothing using a rolling average over a given time window
-smoothing_duration = 0.1		# Time window length in seconds
-kernel_size = int(smoothing_duration*fs)
-kernel = np.ones(kernel_size)/kernel_size
-h_estimate = np.convolve(Y_alpha_opt, kernel, mode = 'same')
-
 """
 # Recommended method from the referenced paper, but this gives very strange values for the noise floor
 gamma = np.var(np.abs(Y_alpha_opt))
@@ -126,13 +120,8 @@ for i, val in enumerate(Y_alpha_opt):
 
 
 
-# Plot the transmitted and received chirps (from the estimated chirp start index) and the estimated channel coefficients
-fig, axs = plt.subplot_mosaic([['ax0', 'ax1'], ['ax2', 'ax2']])
-fig = plt.figure(figsize = (12, 6), constrained_layout = True)
-spec = fig.add_gridspec(2, 2)
-ax0 = fig.add_subplot(spec[0, 0])
-ax1 = fig.add_subplot(spec[0, 1])
-ax2 = fig.add_subplot(spec[1, :])
+# Plot spectrograms of the received and FrFT'd chirps
+fig, (ax0, ax1) = plt.subplots(1, 2, figsize = (12, 6))
 
 fig.suptitle('Channel Estimation Test Results')
 
@@ -149,13 +138,5 @@ plt.colorbar(frft_im, ax = ax1)
 ax1.set_title('FrFT Chirp Spectrogram')
 ax1.set_xlabel('Time [s]')
 ax1.set_ylabel('Freqeuncy [Hz]')
-
-channel_coefficient_ts = np.linspace(0, Y_alpha_opt.size/fs, Y_alpha_opt.size)
-ax2.plot(channel_coefficient_ts, np.abs(h_estimate), color = 'blue', label = 'Channel coefficients')
-#ax2.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ')
-ax2.set_title('Channel Response (Optimum FrFT at α = {})'.format(np.round(alpha_opt, 2)))
-ax2.set_xlabel('Time (s)')
-ax2.set_ylabel('Channel Coefficient Magnitudes (Smoothed)')
-ax2.legend(loc = 'upper right')
 
 plt.show()
