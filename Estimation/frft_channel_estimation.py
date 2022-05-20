@@ -85,7 +85,7 @@ received_chirp_trunc = received_chirp[chirp_start_index:chirp_end_index]
 
 
 # FrFT search
-alpha_values = np.arange(0, 2, 0.05)
+alpha_values = np.arange(0, 2, 0.01)
 
 Y_max_array = []
 for alpha in alpha_values:
@@ -101,13 +101,13 @@ Y_max_array = np.asarray(Y_max_array)
 
 # Optimum value of alpha is the one that gives the FrFT with the largest l-infinity norm
 alpha_opt = alpha_values[np.argmax(Y_max_array)]
-print('α_opt = {}'.format(alpha_opt))
-
 Y_alpha_opt = frft(received_chirp_trunc, alpha_opt)
-print('FrFT at α_opt is: {}'.format(Y_alpha_opt))
 
+
+
+# Chanel coefficient estimation from the FrFT
 """
-# Recommended method from the referenced paper, but this gives very strange values for the noise floor
+# Recommended method for channel coefficient estimation, but this gives very strange values for the noise floor
 gamma = np.var(np.abs(Y_alpha_opt))
 print('Noise floor γ = {}'.format(gamma))
 
@@ -120,8 +120,22 @@ for i, val in enumerate(Y_alpha_opt):
 
 
 
-# Plot spectrograms of the received and FrFT'd chirps
-fig, (ax0, ax1) = plt.subplots(1, 2, figsize = (12, 6))
+# Current plan is to go through the FrFT chirp spectogram values at frequency f = 0 and sample the signal powers at each time
+# From this, we can probably get a good idea of what the channel response looks like, as well as time delays between peaks
+# We expect to see slightly broad peaks due to slight path length differences around each echo of the chirp
+frft_power, frft_extent = get_spectrogram_data(Y_alpha_opt, 1.2*chirp_duration, fs)
+# frft_power contains a matrix where each value contains the signal power at that time-frequency element
+# The rows contain the time samples at given frequencies; row 0 is at +fs/2, row -1 is at -fs/2
+dc_sig_powers = frft_power[int(frft_power.shape[0]/2)]
+
+
+# Plot spectrograms of the received and FrFT'd chirps and the estimated channel coefficients
+fig, axd = plt.subplot_mosaic([['ax0', 'ax1'], ['ax2', 'ax2']])
+fig = plt.figure(figsize=(12, 8), constrained_layout=True)
+spec = fig.add_gridspec(2, 2)
+ax0 = fig.add_subplot(spec[0, 0])
+ax1 = fig.add_subplot(spec[0, 1])
+ax2 = fig.add_subplot(spec[1, :])
 
 fig.suptitle('Channel Estimation Test Results')
 
@@ -132,11 +146,16 @@ ax0.set_title('Received Chirp Spectrogram')
 ax0.set_xlabel('Time [s]')
 ax0.set_ylabel('Freqeuncy [Hz]')
 
-frft_power, frft_extent = get_spectrogram_data(Y_alpha_opt, 1.2*chirp_duration, fs)
 frft_im = ax1.imshow(frft_power, aspect = 'auto', interpolation = None, origin = 'lower', extent = frft_extent)
 plt.colorbar(frft_im, ax = ax1)
-ax1.set_title('FrFT Chirp Spectrogram')
+ax1.set_title('FrFT Chirp Spectrogram: α = {}'.format(alpha_opt))
 ax1.set_xlabel('Time [s]')
 ax1.set_ylabel('Freqeuncy [Hz]')
+
+channel_ts = np.linspace(frft_extent[0], frft_extent[1], frft_power.shape[1])
+ax2.plot(channel_ts, dc_sig_powers, color = 'blue')
+ax2.set_title('Estimated Channel Coefficients')
+ax2.set_xlabel('Time [s]')
+ax2.set_ylabel('DC Signal Power')
 
 plt.show()
