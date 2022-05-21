@@ -1,14 +1,15 @@
 """
 Test for channel estimation using the Fractional Fourier Transform (FrFT)
 Source: https://ieeexplore.ieee.org/abstract/document/9221028
+
+Current standard for transmition is:
+1s pause, 2*1s chirp, 1s pause, 1s white noise
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.io.wavfile import write, read
+from scipy.io.wavfile import write
 import scipy.signal as sig
-import struct, wave, tftb
-import soundfile as sf
 import sounddevice as sd
 from utilities import *
 
@@ -28,8 +29,7 @@ def frft(x, alpha):
      
     z[0:m] = np.exp(1.j*np.pi*(j[0:m]**2)*float(alpha)/m)
     z[-m:] = np.exp(1.j*np.pi*((j[-m:]-2*p)**2)*float(alpha)/m)
-     
-     
+    
     d = np.exp(-1.j*np.pi*j**2**float(alpha)/m)*np.fft.ifft(np.fft.fft(y)*np.fft.fft(z))
      
     return d[0:m]
@@ -85,7 +85,7 @@ received_chirp_trunc = received_chirp[chirp_start_index:chirp_end_index]
 
 
 # FrFT search
-alpha_values = np.arange(0, 2, 0.01)
+alpha_values = np.arange(0.01, 2, 0.01)
 
 Y_max_array = []
 for alpha in alpha_values:
