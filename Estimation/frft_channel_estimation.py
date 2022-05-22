@@ -85,6 +85,7 @@ received_chirp_trunc = received_chirp[chirp_start_index:chirp_end_index]
 
 
 # FrFT search
+# Don't search from α = 0: The optimum FrFT will never be at α = 0 but sometimes the largest l-inf. norm of the FrFT is at α = 0, causing errors in the channel impulse response
 alpha_values = np.arange(0.01, 2, 0.01)
 
 Y_max_array = []
@@ -130,32 +131,36 @@ dc_sig_powers = frft_power[int(frft_power.shape[0]/2)]
 
 
 # Plot spectrograms of the received and FrFT'd chirps and the estimated channel coefficients
-fig, axd = plt.subplot_mosaic([['ax0', 'ax1'], ['ax2', 'ax2']])
-fig = plt.figure(figsize=(12, 8), constrained_layout=True)
-spec = fig.add_gridspec(2, 2)
-ax0 = fig.add_subplot(spec[0, 0])
-ax1 = fig.add_subplot(spec[0, 1])
-ax2 = fig.add_subplot(spec[1, :])
+fig, ((ax00, ax01), (ax10, ax11)) = plt.subplots(2, 2, figsize = (18, 12))
 
 fig.suptitle('Channel Estimation Test Results')
 
 rc_power, rc_extent = get_spectrogram_data(received_chirp_trunc, 1.2*chirp_duration, fs)
-rc_im = ax0.imshow(rc_power, aspect = 'auto', interpolation = None, origin = 'lower', extent = rc_extent)
-plt.colorbar(rc_im, ax = ax0)
-ax0.set_title('Received Chirp Spectrogram')
-ax0.set_xlabel('Time [s]')
-ax0.set_ylabel('Freqeuncy [Hz]')
+rc_im = ax00.imshow(rc_power, aspect = 'auto', interpolation = None, origin = 'lower', extent = rc_extent)
+plt.colorbar(rc_im, ax = ax00)
+ax00.set_title('Received Chirp Spectrogram')
+ax00.set_xlabel('Time [s]')
+ax00.set_ylabel('Freqeuncy [Hz]')
 
-frft_im = ax1.imshow(frft_power, aspect = 'auto', interpolation = None, origin = 'lower', extent = frft_extent)
-plt.colorbar(frft_im, ax = ax1)
-ax1.set_title('FrFT Chirp Spectrogram: α = {}'.format(alpha_opt))
-ax1.set_xlabel('Time [s]')
-ax1.set_ylabel('Freqeuncy [Hz]')
+frft_im = ax01.imshow(frft_power, aspect = 'auto', interpolation = None, origin = 'lower', extent = frft_extent)
+plt.colorbar(frft_im, ax = ax01)
+ax01.set_title('FrFT Chirp Spectrogram: α = {}'.format(alpha_opt))
+ax01.set_xlabel('Time [s]')
+ax01.set_ylabel('Freqeuncy [Hz]')
 
 channel_ts = np.linspace(frft_extent[0], frft_extent[1], frft_power.shape[1])
-ax2.plot(channel_ts, dc_sig_powers, color = 'blue')
-ax2.set_title('Estimated Channel Coefficients')
-ax2.set_xlabel('Time [s]')
-ax2.set_ylabel('DC Signal Power')
+ax10.plot(channel_ts, dc_sig_powers, color = 'blue')
+ax10.set_title('Channel Impulse Response: DC Signal Power')
+ax10.set_xlabel('Time [s]')
+ax10.set_ylabel('Channel Coefficient')
+
+FrFT_ts = np.arange(0, 1.2*chirp_duration, 1/fs)
+#gamma = np.var(np.abs(Y_alpha_opt[int(0.3*fs):int(0.5*fs)]))		# Noise floor estimated using parts of the FrFT containing no parts of the impulse response
+ax11.plot(FrFT_ts, np.abs(Y_alpha_opt), color = 'blue')
+#ax11.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
+ax11.set_title('Channel Impulse Response: FrFT at α = {}'.format(alpha_opt))
+ax11.set_xlabel('Time [s]')
+ax11.set_ylabel('Channel Coefficient')
+#ax11.legend(loc = 'upper right')
 
 plt.show()
