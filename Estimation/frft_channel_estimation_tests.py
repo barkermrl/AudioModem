@@ -90,8 +90,8 @@ received_sig = received_sig[chirp_start_index:sig_end_index]
 # FrFT search to find the channel impulse response
 # Don't search from α = 0: The optimum FrFT will never be at α = 0 but sometimes the largest l-inf. norm of the FrFT is at α = 0, causing errors in the channel impulse response
 alpha_values = np.arange(0.01, 2, 0.01)
-
-Y_max_array = []
+	
+Y_max_array = np.zeros(alpha_values.size)
 for alpha in alpha_values:
 	# Find the FrFT of the received chirp at given alpha
 	FrFT = frft(received_chirp, alpha)
@@ -101,26 +101,26 @@ for alpha in alpha_values:
 
 	Y_max_array.append(Y_max)
 
-Y_max_array = np.asarray(Y_max_array)
-
 # Optimum value of alpha is the one that gives the FrFT with the largest l-infinity norm
 alpha_opt = alpha_values[np.argmax(Y_max_array)]
 Y_alpha_opt = frft(received_chirp, alpha_opt)
 
 # Estimate the channel impulse response
-frft_power, frft_extent = get_spectrogram_data(Y_alpha_opt, 1.2*test_sig_duration, fs)
-h_dc_power = frft_power[int(frft_power.shape[0]/2)][0:int(0.1*fs)]		# Estimate from the DC signal power
+h_ts = np.arange(0, sync_chirp_duration, 1/fs)/np.cos(alpha_opt)		# Find the true times of the impulse response
 
-h_frft = np.abs(Y_alpha_opt)[0:int(0.1*fs)]		# Estimate from the magnitude of Y_alpha_opt directly
+impulse_time = 0.1  		# Time we want the estmiated  impulse response to last
+impulse_end_index = np.searchsorted(h_ts, impulse_time)
+
+h_ts = h_ts[:impulse_end_index]
+h_frft = Y_alpha_opt[:impulse_end_index]		# Estimate from the magnitude of Y_alpha_opt directly		
 
 
 
 # Calculate the estimated received signals using each estimate of the channel impulse response
-estimated_sig_dcsigpower = np.convolve(test_sig, h_dc_power)
 estimated_sig_frft = np.convolve(test_sig, h_frft)
 
 # Plot results to compare the actual and estimated received signals
-fig, ((ax0, ax1, ax2), (ax3, ax4, ax5)) = plt.subplots(2, 3, figsize = (18, 12))
+fig, ((ax0, ax1), (ax2, ax3)) = plt.subplots(2, 2, figsize = (18, 12))
 
 fig.suptitle('Channel Estimation Test Results: $α_{opt}$ = '+str(np.round(alpha_opt, 2)))
 
@@ -133,48 +133,32 @@ ax0.set_title('Received Chirp')
 ax0.set_xlabel('Time [s]')
 ax0.set_ylabel('Freqeuncy [Hz]')
 
-# Estimated signal spectrogram using DC signal powers
-sig_est_dc_power, sig_est_dc_extent = get_spectrogram_data(estimated_sig_dcsigpower, 1.2*test_sig_duration, fs)
-sig_est_dc_im = ax1.imshow(10*np.log10(sig_est_dc_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = sig_est_dc_extent)
-sig_est_dc_cbar = plt.colorbar(sig_est_dc_im, ax = ax1)
-sig_est_dc_cbar.set_label('Signal Power [dB]')
-ax1.set_title('Estimated Received Chirp: DC Signal Power')
+# Estimated signal spectrogram using Y_alpha_opt
+sig_est_frft_power, sig_est_frft_extent = get_spectrogram_data(estimated_sig_frft, 1.2*test_sig_duration, fs)
+sig_est_frft_im = ax1.imshow(10*np.log10(sig_est_frft_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = sig_est_frft_extent)
+sig_est_frft_cbar = plt.colorbar(sig_est_frft_im, ax = ax1)
+sig_est_frft_cbar.set_label('Signal Power [dB]')
+ax1.set_title('Estimated Received Chirp')
 ax1.set_xlabel('Time [s]')
 ax1.set_ylabel('Freqeuncy [Hz]')
 
-# Estimated signal spectrogram using Y_alpha_opt
-sig_est_frft_power, sig_est_frft_extent = get_spectrogram_data(estimated_sig_dcsigpower, 1.2*test_sig_duration, fs)
-sig_est_frft_im = ax2.imshow(10*np.log10(sig_est_frft_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = sig_est_frft_extent)
-sig_est_frft_cbar = plt.colorbar(sig_est_dc_im, ax = ax2)
-sig_est_frft_cbar.set_label('Signal Power [dB]')
-ax2.set_title('Estimated Received Chirp: FrFT')
+# FrFT chirp spectrogram
+frft_power, frft_extent = get_spectrogram_data(Y_alpha_opt, 1.2*test_sig_duration, fs)
+frft_im = ax2.imshow(10*np.log10(frft_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = frft_extent)
+frft_cbar = plt.colorbar(frft_im, ax = ax2)
+frft_cbar.set_label('Signal Power [dB]')
+ax2.set_title("FrFT'd Chirp")
 ax2.set_xlabel('Time [s]')
 ax2.set_ylabel('Freqeuncy [Hz]')
 
-# FrFT chirp spectrogram
-frft_im = ax3.imshow(10*np.log10(frft_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = frft_extent)
-frft_cbar = plt.colorbar(frft_im, ax = ax3)
-frft_cbar.set_label('Signal Power [dB]')
-ax3.set_title('FrFT Chirp at α = {}'.format(alpha_opt))
-ax3.set_xlabel('Time [s]')
-ax3.set_ylabel('Freqeuncy [Hz]')
-
-# Impulse response from DC signal power
-h_ts = np.arange(0, 0.1, 1/fs)
-#channel_ts = np.linspace(frft_extent[0], frft_extent[1], frft_power.shape[1])
-ax4.plot(h_ts, h_dc_power, color = 'blue')
-ax4.set_title('Channel Impulse Response: DC Signal Power')
-ax4.set_xlabel('Time [s]')
-ax4.set_ylabel('Channel Impulse Response')
-
 # Impulse response from Y_alpha_opt
-#gamma = np.var(np.abs(Y_alpha_opt[:int(0.01*fs)]))		# Noise floor estimated using parts of the FrFT containing no parts of the impulse response
-gamma = 0.1*np.amax(np.abs(Y_alpha_opt))
-ax5.plot(h_ts, h_frft, color = 'blue')
-ax5.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
-ax5.set_title('Channel Impulse Response: FrFT at α = {}'.format(alpha_opt))
-ax5.set_xlabel('Time [s]')
-ax5.set_ylabel('Channel Impulse Response')
-ax5.legend(loc = 'upper right')
+#gamma = np.var(h_frft)			# Noise floor estimated using parts of the FrFT containing no parts of the impulse response
+gamma = 0.1*np.amax(np.abs(h_frft))
+ax3.plot(h_ts, np.abs(h_frft), color = 'blue')
+ax3.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
+ax3.set_title('Magnitude of Channel Impulse Response')
+ax3.set_xlabel('Time [s]')
+ax3.set_ylabel('Channel Impulse Response')
+ax3.legend(loc = 'upper right')
 
 plt.show()
