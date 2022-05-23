@@ -57,7 +57,7 @@ def get_spectrogram_data(signal, T, fs = 44100):
 
 
 # Transmitted and received signals for channel estimation and tests
-fs = 44100
+fs = 48000
 
 sync_chirp_duration = 1
 sync_chirp = gen_chirp(sync_chirp_duration, form = 'linear')
@@ -75,7 +75,7 @@ received_sig = sd.rec(int(3*test_sig_duration*fs), samplerate = fs, channels = 1
 print('RECORDING FINISHED')
 
 # Synchronise to find the start of the chirp in the received signal
-convolution = np.convolve(received_sig, np.flip(sync_chirp))
+convolution = sig.convolve(received_sig, np.flip(sync_chirp))
 chirp_start_index = np.abs(convolution).argmax() - sync_chirp_duration*fs
 
 # Truncate the received signal to isolate the chirp and the whole test signal
@@ -92,32 +92,35 @@ received_sig = received_sig[chirp_start_index:sig_end_index]
 alpha_values = np.arange(0.01, 2, 0.01)
 	
 Y_max_array = np.zeros(alpha_values.size)
-for alpha in alpha_values:
+for i, alpha in enumerate(alpha_values):
 	# Find the FrFT of the received chirp at given alpha
 	FrFT = frft(received_chirp, alpha)
 
 	# Finds the element of the FrFT with the largest magnitude
 	Y_max = np.linalg.norm(FrFT, ord = np.inf)
 
-	Y_max_array.append(Y_max)
+	Y_max_array[i] = (Y_max)
 
 # Optimum value of alpha is the one that gives the FrFT with the largest l-infinity norm
 alpha_opt = alpha_values[np.argmax(np.abs(Y_max_array))]
 Y_alpha_opt = frft(received_chirp, alpha_opt)
 
 # Estimate the channel impulse response
-h_ts = np.arange(0, sync_chirp_duration, 1/fs)/np.cos(alpha_opt)		# Find the true times of the impulse response
+h_ts = np.arange(0, sync_chirp_duration, 1/fs)		# Find the true times of the impulse response
 
 impulse_time = 0.1  		# Time we want the estmiated  impulse response to last
-impulse_end_index = np.searchsorted(h_ts, impulse_time)
+impulse_end_index = np.searchsorted(h_ts, impulse_time*np.cos(alpha_opt))		# Impulse time adjusted for the time-stretching from the FrFT
 
 h_ts = h_ts[:impulse_end_index]
-h_frft = Y_alpha_opt[:impulse_end_index]		# Estimate from the magnitude of Y_alpha_opt directly		
+h = Y_alpha_opt[:impulse_end_index]		# Get impulse response from the FrFT
+print(h)
+#gamma = 0.1*np.amax(np.abs(h))
+#h[np.abs(h) < gamma] = 0 				# Filter for noise
 
 
 
 # Calculate the estimated received signals using each estimate of the channel impulse response
-estimated_sig_frft = np.convolve(test_sig, h_frft)
+estimated_sig_frft = sig.convolve(test_sig, h)
 
 # Plot results to compare the actual and estimated received signals
 fig, ((ax0, ax1), (ax2, ax3)) = plt.subplots(2, 2, figsize = (18, 12))
@@ -152,13 +155,11 @@ ax2.set_xlabel('Time [s]')
 ax2.set_ylabel('Freqeuncy [Hz]')
 
 # Impulse response from Y_alpha_opt
-#gamma = np.var(h_frft)			# Noise floor estimated using parts of the FrFT containing no parts of the impulse response
-gamma = 0.1*np.amax(np.abs(h_frft))
-ax3.plot(h_ts, np.abs(h_frft), color = 'blue')
-ax3.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
-ax3.set_title('Magnitude of Channel Impulse Response')
+ax3.plot(h_ts/np.cos(alpha_opt), np.abs(h), color = 'blue')
+#ax3.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
+ax3.set_title('Channel Impulse Response')
 ax3.set_xlabel('Time [s]')
-ax3.set_ylabel('Channel Impulse Response')
+ax3.set_ylabel('|h(t)|')
 ax3.legend(loc = 'upper right')
 
 plt.show()
