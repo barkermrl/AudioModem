@@ -102,7 +102,7 @@ for alpha in alpha_values:
 	Y_max_array.append(Y_max)
 
 # Optimum value of alpha is the one that gives the FrFT with the largest l-infinity norm
-alpha_opt = alpha_values[np.argmax(Y_max_array)]
+alpha_opt = alpha_values[np.argmax(np.abs(Y_max_array))]
 Y_alpha_opt = frft(received_chirp, alpha_opt)
 
 # Estimate the channel impulse response
