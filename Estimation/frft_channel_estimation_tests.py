@@ -64,8 +64,8 @@ convolution = sig.convolve(received_sig, np.flip(chirp))
 chirp_start_index = np.abs(convolution).argmax() - chirp_duration*fs
 
 # Truncate the received signal to isolate the chirp and the whole test signal
-chirp_end_index = np.minimum(int(chirp_start_index + chirp_duration*fs), received_sig.size)
-sig_end_index = np.minimum(int(chirp_start_index + 1.2*test_sig_duration*fs), received_sig.size)
+chirp_end_index = int(chirp_start_index + chirp_duration*fs)
+sig_end_index = int(chirp_start_index + test_sig_duration*fs)
 
 received_chirp = received_sig[chirp_start_index:chirp_end_index]
 received_sig = received_sig[chirp_start_index:sig_end_index]
@@ -76,16 +76,19 @@ received_sig = received_sig[chirp_start_index:sig_end_index]
 a_opt = frft.optimise_a(received_chirp).x
 Y_opt = frft.frft(received_chirp, a_opt)
 
+# Correct the time scaling of the impulse response from the FrFT
+time_axes = np.arange(0, len(Y_opt), 1/np.cos(a_opt))
+frft_axes = np.arange(0, len(Y_opt))
+Y_opt = np.interp(time_axes, frft_axes, Y_opt)
+
 # Estimate the channel impulse response
-h_ts = np.arange(0, chirp_duration, 1/fs)		# Find the true times of the impulse response
+h_start_index = np.argmax(Y_opt)
+h = Y_opt[h_start_index:h_start_index+8192]
+h[:int(0.001*fs)] = 0
 
-impulse_time = 0.1  		# Time we want the estmiated  impulse response to last
-impulse_end_index = np.searchsorted(h_ts, impulse_time*np.cos(a_opt))		# Impulse time adjusted for the time-stretching from the FrFT
+h_ts = np.arange(0, h.size/fs, 1/fs)
 
-h_ts = h_ts[:impulse_end_index]
-h = Y_opt[:impulse_end_index]		# Get impulse response from the FrFT
-
-gamma = np.var(h)
+gamma = np.var(np.abs(h))
 #h[np.abs(h) < gamma] = 0 		# Filter for noise
 
 
@@ -99,7 +102,7 @@ fig, ((ax0, ax1), (ax2, ax3)) = plt.subplots(2, 2, figsize = (18, 12))
 fig.suptitle('Channel Estimation Test Results: $α_{opt}$ = '+str(np.round(a_opt, 2)))
 
 # Actual received signal
-rc_power, rc_extent = get_spectrogram_data(received_sig, 1.2*test_sig_duration, fs)
+rc_power, rc_extent = get_spectrogram_data(received_sig, test_sig_duration, fs)
 rc_im = ax0.imshow(10*np.log10(rc_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = rc_extent)
 rc_cbar = plt.colorbar(rc_im, ax = ax0)
 rc_cbar.set_label('Signal Power [dB]')
@@ -108,7 +111,7 @@ ax0.set_xlabel('Time [s]')
 ax0.set_ylabel('Freqeuncy [Hz]')
 
 # Estimated signal spectrogram using Y_opt
-estimated_sig_power, estimated_sig_extent = get_spectrogram_data(estimated_sig, 1.2*test_sig_duration, fs)
+estimated_sig_power, estimated_sig_extent = get_spectrogram_data(estimated_sig, test_sig_duration, fs)
 estimated_sig_im = ax1.imshow(10*np.log10(estimated_sig_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = estimated_sig_extent)
 estimated_sig_cbar = plt.colorbar(estimated_sig_im, ax = ax1)
 estimated_sig_cbar.set_label('Signal Power [dB]')
@@ -116,21 +119,20 @@ ax1.set_title('Estimated Received Chirp')
 ax1.set_xlabel('Time [s]')
 ax1.set_ylabel('Freqeuncy [Hz]')
 
-# FrFT chirp spectrogram
-frft_power, frft_extent = get_spectrogram_data(Y_opt, 1.2*test_sig_duration, fs)
-frft_im = ax2.imshow(10*np.log10(frft_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = frft_extent)
-frft_cbar = plt.colorbar(frft_im, ax = ax2)
-frft_cbar.set_label('Signal Power [dB]')
-ax2.set_title("FrFT'd Chirp")
+# Estimated impulse response
+ax2.plot(h_ts, np.abs(h), color = 'blue')
+ax2.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
+ax2.set_title('Channel Impulse Response')
 ax2.set_xlabel('Time [s]')
-ax2.set_ylabel('Freqeuncy [Hz]')
+ax2.set_ylabel('|h(t)|')
+ax2.legend(loc = 'upper right')
 
-# Impulse response from Y_opt
-ax3.plot(h_ts/np.cos(a_opt), np.abs(h), color = 'blue')
-ax3.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
-ax3.set_title('Channel Impulse Response')
-ax3.set_xlabel('Time [s]')
-ax3.set_ylabel('|h(t)|')
-ax3.legend(loc = 'upper right')
+# Estimated frequency response
+H = np.fft.fft(h)
+H_freqs = np.linspace(0, fs, H.size)
+ax3.plot(H_freqs, 10*np.log10(np.abs(H)), color = 'blue')
+ax3.set_title('Channel Frequency Response')
+ax3.set_xlabel('Frequency [Hz]')
+ax3.set_ylabel('|H(f)| [dB]')
 
 plt.show()
