@@ -97,27 +97,30 @@ gamma = np.var(np.abs(h))
 estimated_sig = sig.convolve(test_sig, h)
 
 # Plot results to compare the actual and estimated received signals
-fig, ((ax0, ax1), (ax2, ax3)) = plt.subplots(2, 2, figsize = (18, 12))
+fig = plt.figure(figsize = (18, 12), constrained_layout = True)
+(subfig_top, subfig_bot) = fig.subfigures(2, 1)
+axs_top = subfig_top.subplots(1, 2)
+axs_bot = subfig_bot.subplots(1, 2)
+ax0, ax1, ax2, ax3 = axs_top[0], axs_top[1], axs_bot[0], axs_bot[1]
 
 fig.suptitle('Channel Estimation Test Results: $α_{opt}$ = '+str(np.round(a_opt, 2)))
 
 # Actual received signal
 rc_power, rc_extent = get_spectrogram_data(received_sig, test_sig_duration, fs)
 rc_im = ax0.imshow(10*np.log10(rc_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = rc_extent)
-rc_cbar = plt.colorbar(rc_im, ax = ax0)
-rc_cbar.set_label('Signal Power [dB]')
-ax0.set_title('Received Chirp')
+ax0.set_title('Received Chirp Spectrogram')
 ax0.set_xlabel('Time [s]')
 ax0.set_ylabel('Freqeuncy [Hz]')
 
 # Estimated signal spectrogram using Y_opt
 estimated_sig_power, estimated_sig_extent = get_spectrogram_data(estimated_sig, test_sig_duration, fs)
 estimated_sig_im = ax1.imshow(10*np.log10(estimated_sig_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = estimated_sig_extent)
-estimated_sig_cbar = plt.colorbar(estimated_sig_im, ax = ax1)
-estimated_sig_cbar.set_label('Signal Power [dB]')
-ax1.set_title('Estimated Received Chirp')
+ax1.set_title('Estimated Received Chirp Spectrogram')
 ax1.set_xlabel('Time [s]')
 ax1.set_ylabel('Freqeuncy [Hz]')
+
+cbar = subfig_top.colorbar(rc_im, ax = axs_top, location = 'right')
+cbar.set_label('Signal Power [dB]')
 
 # Estimated impulse response
 ax2.plot(h_ts, np.abs(h), color = 'blue')
