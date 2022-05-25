@@ -114,7 +114,7 @@ f   = f[freq_slice]
 Sxx = Sxx[freq_slice,:][0]		# Keep only frequencies of interest to the transmission bandwidth
 
 rc_im = ax0.pcolormesh(t, np.fft.fftshift(f), np.fft.fftshift(10*np.log10(Sxx), axes = 0), shading='gouraud')
-ax0.set_title('Received Chirp Spectrogram')
+ax0.set_title('Received Signal Spectrogram')
 ax0.set_xlabel('Time [s]')
 ax0.set_ylabel('Freqeuncy [Hz]')
 
@@ -126,7 +126,7 @@ f   = f[freq_slice]
 Sxx = Sxx[freq_slice,:][0]		# Keep only frequencies of interest to the transmission bandwidth
 
 estimated_sig_im = ax1.pcolormesh(t, np.fft.fftshift(f), np.fft.fftshift(10*np.log10(Sxx), axes = 0), shading='gouraud')
-ax1.set_title('Estimated Received Chirp Spectrogram')
+ax1.set_title('Estimated Received Signal Spectrogram')
 ax1.set_xlabel('Time [s]')
 ax1.set_ylabel('Freqeuncy [Hz]')
 
