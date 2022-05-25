@@ -73,7 +73,8 @@ received_sig = received_sig[chirp_start_index:sig_end_index]
 
 
 # FrFT search to find the channel impulse response
-a_opt = frft.optimise_a(received_chirp).x
+#a_opt = frft.optimise_a(received_chirp).x
+a_opt = 1.12
 Y_opt = frft.frft(received_chirp, a_opt)
 
 # Correct the time scaling of the impulse response from the FrFT
@@ -84,9 +85,9 @@ Y_opt = np.interp(time_axes, frft_axes, Y_opt)
 # Estimate the channel impulse response
 h_start_index = np.argmax(Y_opt)
 h = Y_opt[h_start_index:h_start_index+8192]
-h[:int(0.001*fs)] = 0
+#h[:int(0.001*fs)] = np.mean(h)
 
-h_ts = np.arange(0, h.size/fs, 1/fs)
+h_ts = np.linspace(0, h.size/fs, h.size)
 
 gamma = np.var(np.abs(h))
 #h[np.abs(h) < gamma] = 0 		# Filter for noise
@@ -94,7 +95,7 @@ gamma = np.var(np.abs(h))
 
 
 # Calculate the estimated received signals using each estimate of the channel impulse response
-estimated_sig = sig.convolve(test_sig, h)
+estimated_sig = sig.convolve(h, test_sig)
 
 # Plot results to compare the actual and estimated received signals
 fig = plt.figure(figsize = (18, 12), constrained_layout = True)
@@ -103,7 +104,7 @@ axs_top = subfig_top.subplots(1, 2)
 axs_bot = subfig_bot.subplots(1, 2)
 ax0, ax1, ax2, ax3 = axs_top[0], axs_top[1], axs_bot[0], axs_bot[1]
 
-fig.suptitle('Channel Estimation Test Results: $α_{opt}$ = '+str(np.round(a_opt, 2)))
+fig.suptitle('Channel Estimation Test Results: $a_{opt}$ = '+str(np.round(a_opt, 2)))
 
 # Actual received signal
 rc_power, rc_extent = get_spectrogram_data(received_sig, test_sig_duration, fs)
@@ -133,7 +134,7 @@ ax2.legend(loc = 'upper right')
 # Estimated frequency response
 H = np.fft.fft(h)
 H_freqs = np.linspace(0, fs, H.size)
-ax3.plot(H_freqs, 10*np.log10(np.abs(H)), color = 'blue')
+ax3.plot(H_freqs, sig.savgol_filter(10*np.log10(np.abs(H)), 101, 3), color = 'blue')
 ax3.set_title('Channel Frequency Response')
 ax3.set_xlabel('Frequency [Hz]')
 ax3.set_ylabel('|H(f)| [dB]')
