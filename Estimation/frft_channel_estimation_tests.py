@@ -14,7 +14,7 @@ import frft
 
 
 # Function to get the info needed the plot the spectrogram of a signal
-def get_spectrogram_data(signal, T, fs = 44100):
+def get_spectrogram_data(signal, T, fs = 48000):
 	dt = 1/fs	# timestep
 	num_samples = T*fs
 	ts = np.arange(num_samples)/fs
@@ -107,15 +107,25 @@ ax0, ax1, ax2, ax3 = axs_top[0], axs_top[1], axs_bot[0], axs_bot[1]
 fig.suptitle('Channel Estimation Test Results: $a_{opt}$ = '+str(np.round(a_opt, 2)))
 
 # Actual received signal
-rc_power, rc_extent = get_spectrogram_data(received_sig, test_sig_duration, fs)
-rc_im = ax0.imshow(10*np.log10(rc_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = rc_extent)
+f, t, Sxx = sig.spectrogram(received_sig, fs, return_onesided = False)
+
+freq_slice = np.where((f >= -12000) & (f <= 12000))
+f   = f[freq_slice]
+Sxx = Sxx[freq_slice,:][0]		# Keep only frequencies of interest to the transmission bandwidth
+
+rc_im = ax0.pcolormesh(t, np.fft.fftshift(f), np.fft.fftshift(10*np.log10(Sxx), axes = 0), shading='gouraud')
 ax0.set_title('Received Chirp Spectrogram')
 ax0.set_xlabel('Time [s]')
 ax0.set_ylabel('Freqeuncy [Hz]')
 
-# Estimated signal spectrogram using Y_opt
-estimated_sig_power, estimated_sig_extent = get_spectrogram_data(estimated_sig, test_sig_duration, fs)
-estimated_sig_im = ax1.imshow(10*np.log10(estimated_sig_power), aspect = 'auto', interpolation = None, origin = 'lower', extent = estimated_sig_extent)
+# Estimated signal spectrogram
+f, t, Sxx = sig.spectrogram(estimated_sig, fs, return_onesided = False)
+
+freq_slice = np.where((f >= -12000) & (f <= 12000))
+f   = f[freq_slice]
+Sxx = Sxx[freq_slice,:][0]		# Keep only frequencies of interest to the transmission bandwidth
+
+estimated_sig_im = ax1.pcolormesh(t, np.fft.fftshift(f), np.fft.fftshift(10*np.log10(Sxx), axes = 0), shading='gouraud')
 ax1.set_title('Estimated Received Chirp Spectrogram')
 ax1.set_xlabel('Time [s]')
 ax1.set_ylabel('Freqeuncy [Hz]')
@@ -133,7 +143,8 @@ ax2.legend(loc = 'upper right')
 
 # Estimated frequency response
 H = np.fft.fft(h)
-H_freqs = np.linspace(0, fs, H.size)
+H = np.roll(H, H.size//2)		# Shift so negative freqs. are at the front
+H_freqs = np.linspace(-fs/2, fs/2, H.size)
 ax3.plot(H_freqs, sig.savgol_filter(10*np.log10(np.abs(H)), 101, 3), color = 'blue')
 ax3.set_title('Channel Frequency Response')
 ax3.set_xlabel('Frequency [Hz]')
