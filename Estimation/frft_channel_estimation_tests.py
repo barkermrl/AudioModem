@@ -74,7 +74,7 @@ received_sig = received_sig[chirp_start_index:sig_end_index]
 
 # FrFT search to find the channel impulse response
 #a_opt = frft.optimise_a(received_chirp).x
-a_opt = 1.12
+a_opt = 1.12 		# a_opt = 1.12 should be the correct parameter for the chirp in the standard
 Y_opt = frft.frft(received_chirp, a_opt)
 
 # Correct the time scaling of the impulse response from the FrFT
@@ -94,36 +94,34 @@ gamma = np.var(np.abs(h))
 
 
 
-# Calculate the estimated received signals using each estimate of the channel impulse response
-estimated_sig = sig.convolve(h, test_sig)
-
 # Plot results to compare the actual and estimated received signals
 fig = plt.figure(figsize = (18, 12), constrained_layout = True)
 (subfig_top, subfig_bot) = fig.subfigures(2, 1)
 axs_top = subfig_top.subplots(1, 2)
-axs_bot = subfig_bot.subplots(1, 2)
-ax0, ax1, ax2, ax3 = axs_top[0], axs_top[1], axs_bot[0], axs_bot[1]
+axs_bot = subfig_bot.subplots(1, 3)
+ax0, ax1, ax2, ax3, ax4 = axs_top[0], axs_top[1], axs_bot[0], axs_bot[1], axs_bot[2]
 
 fig.suptitle('Channel Estimation Test Results: $a_{opt}$ = '+str(np.round(a_opt, 2)))
 
 # Actual received signal
 f, t, Sxx = sig.spectrogram(received_sig, fs, return_onesided = False)
 
-freq_slice = np.where((f >= -12000) & (f <= 12000))
+freq_slice = np.where((f >= -12000) & (f <= 12000))		# Keep only frequencies of interest to the transmission bandwidth
 f   = f[freq_slice]
-Sxx = Sxx[freq_slice,:][0]		# Keep only frequencies of interest to the transmission bandwidth
+Sxx = Sxx[freq_slice,:][0]
 
 rc_im = ax0.pcolormesh(t, np.fft.fftshift(f), np.fft.fftshift(10*np.log10(Sxx), axes = 0), shading='gouraud')
 ax0.set_title('Received Signal Spectrogram')
 ax0.set_xlabel('Time [s]')
 ax0.set_ylabel('Freqeuncy [Hz]')
 
-# Estimated signal spectrogram
+# Estimated received signal spectrogram
+estimated_sig = sig.convolve(h, test_sig)		# Calculate the estimated received signals using each estimate of the channel impulse response
 f, t, Sxx = sig.spectrogram(estimated_sig, fs, return_onesided = False)
 
-freq_slice = np.where((f >= -12000) & (f <= 12000))
+freq_slice = np.where((f >= -12000) & (f <= 12000))		# Keep only frequencies of interest to the transmission bandwidth
 f   = f[freq_slice]
-Sxx = Sxx[freq_slice,:][0]		# Keep only frequencies of interest to the transmission bandwidth
+Sxx = Sxx[freq_slice,:][0]
 
 estimated_sig_im = ax1.pcolormesh(t, np.fft.fftshift(f), np.fft.fftshift(10*np.log10(Sxx), axes = 0), shading='gouraud')
 ax1.set_title('Estimated Received Signal Spectrogram')
@@ -133,21 +131,33 @@ ax1.set_ylabel('Freqeuncy [Hz]')
 cbar = subfig_top.colorbar(rc_im, ax = axs_top, location = 'right')
 cbar.set_label('Signal Power [dB]')
 
-# Estimated impulse response
-ax2.plot(h_ts, np.abs(h), color = 'blue')
+# Impulse response
+impulse_time = 0.01		# Estimated time of the impulse response
+impulse_end_index = int(impulse_time * fs)
+
+ax2.plot(h_ts[:impulse_end_index], np.abs(h[:impulse_end_index]), color = 'blue')
 ax2.axhline(gamma, color = 'red', linestyle = ':', label = 'Noise floor γ = {}'.format(np.round(gamma, 3)))
-ax2.set_title('Channel Impulse Response')
+ax2.set_title('Impulse Response')
 ax2.set_xlabel('Time [s]')
 ax2.set_ylabel('|h(t)|')
 ax2.legend(loc = 'upper right')
 
-# Estimated frequency response
+# Frequency response
 H = np.fft.fft(h)
 H = np.roll(H, H.size//2)		# Shift so negative freqs. are at the front
 H_freqs = np.linspace(-fs/2, fs/2, H.size)
-ax3.plot(H_freqs, sig.savgol_filter(10*np.log10(np.abs(H)), 101, 3), color = 'blue')
-ax3.set_title('Channel Frequency Response')
+
+freq_slice = np.where((H_freqs >= -12000) & (H_freqs <= 12000))		# Keep only frequencies of interest to the transmission bandwidth
+
+ax3.plot(H_freqs[freq_slice], sig.savgol_filter(10*np.log10(np.abs(H[freq_slice])), 101, 3), color = 'blue')
+ax3.set_title('Frequency Response Magnitude')
 ax3.set_xlabel('Frequency [Hz]')
 ax3.set_ylabel('|H(f)| [dB]')
+
+# Phase response
+ax4.plot(H_freqs[freq_slice], np.angle(H[freq_slice]), color = 'blue')
+ax4.set_title('Frequency Response Phase')
+ax4.set_xlabel('Frequency [Hz]')
+ax4.set_ylabel('∠H(f) [rad]')
 
 plt.show()
