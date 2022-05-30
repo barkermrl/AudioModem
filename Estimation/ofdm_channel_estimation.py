@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
 import sounddevice as sd
-from AudioModem.Estimation.utilities import *
+from utilities import *
 
 
 
@@ -112,11 +112,11 @@ write('OFDM/test_frame.wav', fs, signal)
 
 # Channel estimation
 
-# print('Recording...')
-# received = sd.rec(int(1.5*fs)+len(signal), samplerate = fs, channels = 1, blocking = True).flatten()
-# print('Recording finished')
-# write('OFDM/received_frame.wav', fs, received)
-received = np.array(read('OFDM/received_frame.wav', fs)[1])
+print('Recording...')
+received = sd.rec(int(1.5*fs)+len(signal), samplerate = fs, channels = 1, blocking = True).flatten()
+print('Recording finished')
+write('OFDM/received_frame.wav', fs, received)
+# received = np.array(read('OFDM/received_frame.wav', fs)[1])
 
 chirp_end_index = synchronise(received, chirp_standard) + fs//2 - 1		# -1 fixes the synchronisation issue
 
