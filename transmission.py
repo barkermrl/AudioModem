@@ -5,7 +5,6 @@ import scipy.signal as sig
 import scipy.io.wavfile as wav
 import sounddevice as sd
 import subprocess
-import tempfile
 
 
 class Chirp:
@@ -39,12 +38,13 @@ class Transmission:
 
     def _create_symbols(self):
         symbols = []
+        self.Xs = []
 
         for source_chunk in self._chunk_source():
             subcarrier_data = np.concatenate(
-                ([0], source_chunk, [0], np.conjugate(np.flip(source)))
+                ([0], source_chunk, [0], np.conjugate(np.flip(source_chunk)))
             )
-
+            self.Xs.append(subcarrier_data)
             x = np.fft.ifft(subcarrier_data).real
             OFDM_symbol = np.concatenate((x[-self.L :], x))
             OFDM_symbol /= np.max(np.abs(OFDM_symbol))
@@ -106,70 +106,76 @@ class Transmission:
         ).flatten()
         print("Recording finished")
 
+    def synchronise(self, n, shift=0):
+        # End of chirp is half a second after chirp.
+        # Frame starts 1 second later.
+        frame_start_index = self._find_chirp_peak() + self.fs // 2 + self.fs - shift
+        self.Rs = self._identify_Rs(frame_start_index, n)
 
-# Define functions
+    def _find_chirp_peak(self):
+        window = lambda x: x * np.hanning(len(x))
+        conv = sig.convolve(
+            window(self.received_signal),
+            np.flip(window(self.chirp.signal)),
+            mode="same",
+        )
+        return np.argmax(np.abs(conv))
 
-# Returns the middle index of a synchronisation chirp
-def synchronise(received_signal, transmitted_chirp):
-    def window(x):
-        return x * np.hanning(len(x))
+    def _identify_Rs(self, frame_start_index, n):
+        Rs = []
+        for i in range(n):
+            start = frame_start_index + (self.L + self.N) * i + self.L
+            end = frame_start_index + (self.L + self.N) * (i + 1)
+            r = self.received_signal[start:end]
+            R = np.fft.fft(r)
+            Rs.append(R)
+        return Rs
 
-    c = sig.convolve(
-        window(received_signal), np.flip(window(transmitted_chirp)), mode="same"
-    )
+    def estimate_H(self, n):
+        # Returns a channel estimate from the known and received OFDM symbols
+        R = np.vstack(self.Rs)
+        self.H_est = np.mean(R, axis=0) / self.Xs[0]
 
-    return np.argmax(np.abs(c))
+    def estimate_Xhats(self):
+        self.Xhats = []
 
+        for R in self.Rs:
+            X = R / self.H_est
 
-# Returns a channel estimate from the known and received OFDM symbols
-def get_channel_estimate(known_symbol, received_symbols, num_symbols):
+            # Only add useful part of carrier data X
+            self.Xhats.append(X[1 : 1 + self.num_data_carriers])
 
-    R = np.zeros((num_symbols, known_symbol.shape[0]), dtype=complex)
+    def plot_channel(self):
+        _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
 
-    for i in range(num_symbols):
-        r = received_symbols[L + i * (N + L) : (i + 1) * (L + N)]
-        R[i, :] = np.fft.fft(r)
+        freqs = np.linspace(0, self.fs, self.H_est.shape[0])
 
-    H_est = np.mean(R, axis=0) / known_symbol
+        ax_left.plot(freqs, 10 * np.log10(np.abs(self.H_est)))
+        ax_left.set_xlabel("Frequency [Hz]")
+        ax_left.set_ylabel("Magnitude [dB]")
 
-    return H_est
+        ax_right.scatter(freqs, np.angle(self.H_est))
+        ax_right.set_xlabel("Frequency [Hz]")
+        ax_right.set_ylabel("Phase [rad]")
+        ax_right.set_ylim(-np.pi, np.pi)
 
+        plt.show()
 
-# Plots a channel's frequency response and phase
-def plot_channel(H, fs=48000):
-    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
+    def plot_decoded_symbols(self):
+        # Plots decoded symbols coloured by frequency bin
+        X = self.Xhats[0]
+        plt.scatter(
+            X.real, X.imag, c=np.arange(len(X)), cmap="gist_rainbow_r", marker="."
+        )
 
-    freqs = np.linspace(0, fs, H.shape[0])
+        plt.title("Decoded constellation symbols")
+        plt.xlabel("Re")
+        plt.ylabel("Im")
+        cbar = plt.colorbar()
+        cbar.set_label("Subcarrier number")
 
-    ax_left.plot(freqs, 10 * np.log10(np.abs(H)))
-    ax_left.set_xlabel("Frequency [Hz]")
-    ax_left.set_ylabel("Magnitude [dB]")
+        plt.show()
 
-    ax_right.scatter(freqs, np.angle(H))
-    ax_right.set_xlabel("Frequency [Hz]")
-    ax_right.set_ylabel("Phase [rad]")
-    ax_right.set_ylim(-np.pi, np.pi)
-
-    plt.show()
-
-
-# Plots decoded symbols coloured by frequency bin
-def plot_decoded_symbols(
-    X,
-):
-    plt.scatter(X.real, X.imag, c=np.arange(len(X)), cmap="gist_rainbow_r", marker=".")
-
-    plt.title("Decoded constellation symbols")
-    plt.xlabel("Re")
-    plt.ylabel("Im")
-    cbar = plt.colorbar()
-    cbar.set_label("Subcarrier number")
-
-    plt.show()
-
-
-# Create known OFDM symbol
-# Known OFDM symbol randomly chooses from the available constellation values
 
 np.random.seed(0)  # Makes the random choices the same each time
 constellation_map = {
@@ -183,28 +189,18 @@ constellation_map = {
 #             1: -1,
 #         }
 
+# Known OFDM symbol randomly chooses from the available constellation values
 known_symbol = np.random.choice(list(constellation_map.values()), (8192 - 2) // 2)
-source = np.tile(known_symbol, 5)
+n = 5
+source = np.tile(known_symbol, n)
 
-transmission = Transmission(source, constellation_map)
+transmission = Transmission(source, constellation_map, fs=fs)
 transmission.record_signal(afplay=True)
 transmission.save_signals()
 
-chirp_end_index = (
-    synchronise(received, chirp.signal) + fs // 2
-)  # -1 fixes the synchronisation issue
+transmission.synchronise(n)
+transmission.estimate_H(n)
+transmission.estimate_Xhats()
 
-received_frame = received[chirp_end_index : chirp_end_index + n_reps * (L + N)]
-
-H_est = get_channel_estimate(subcarrier_data, received_frame, n_reps)
-plot_channel(H_est)
-
-
-# Decoding
-
-r = received_frame[L : L + N]
-R = np.fft.fft(r)
-
-X_hat = R / H_est
-# plot_decoded_symbols(X_hat[:X_hat.shape[0]//2])
-plot_decoded_symbols(X_hat[1000:1500])
+transmission.plot_channel()
+transmission.plot_decoded_symbols()
