@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# tmp wav files
+tmp.wav
+
+# VS code
+.vscode/settings.json
+
 # Distribution / packaging
 .Python
 build/
