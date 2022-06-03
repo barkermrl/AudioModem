@@ -20,7 +20,7 @@ class Chirp:
 
 
 class Transmission:
-    def __init__(self, source, constellation_map, L=1024, N=8192, fs=48000):
+    def __init__(self, source, constellation_map, L=512, N=4096, fs=48000):
         self.source = source
         self.L = L
         self.N = N
@@ -86,10 +86,10 @@ class Transmission:
         # Read transmitted signal to ensure it matches signal tranmission is
         # expecting.
         fs, signal = wav.read(t_fname)
-        assert self.signal == signal
+        np.testing.assert_equal(self.signal, signal)
         assert self.fs == fs
 
-        self.received_signal = wav.read(r_fname)
+        fs, self.received_signal = wav.read(r_fname)
 
     def record_signal(self, afplay=False):
         if afplay:
@@ -191,7 +191,7 @@ constellation_map = {
 #         }
 
 # Known OFDM symbol randomly chooses from the available constellation values
-known_symbol = np.random.choice(list(constellation_map.values()), (8192 - 2) // 2)
+known_symbol = np.random.choice(list(constellation_map.values()), (4096 - 2) // 2)
 n = 50
 source = np.tile(known_symbol, n)
 
