@@ -71,7 +71,7 @@ class Transmission:
     def _create_header(self):
         pause = np.zeros(self.fs)
         self.chirp = Chirp(fmin=1e3, fmax=10e3, duration=1, fs=self.fs)
-        return np.concatenate([pause, self.chirp.signal, pause])
+        return np.concatenate([pause, self.chirp.signal])
 
     def _create_body(self, symbols):
         # TODO Include periodic resynchronisations/estimations etc.
@@ -109,7 +109,7 @@ class Transmission:
     def synchronise(self, n, shift=0):
         # End of chirp is half a second after chirp.
         # Frame starts 1 second later.
-        frame_start_index = self._find_chirp_peak() + self.fs // 2 + self.fs - shift
+        frame_start_index = self._find_chirp_peak() + self.fs // 2 - shift
         self.Rs = self._identify_Rs(frame_start_index, n)
 
     def _find_chirp_peak(self):
@@ -143,7 +143,8 @@ class Transmission:
             X = R / self.H_est
 
             # Only add useful part of carrier data X
-            self.Xhats.append(X[1 : 1 + self.num_data_carriers])
+            # Bins determined by standard (86 to 854 inclusive)
+            self.Xhats.append(X[86:854])
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -163,7 +164,7 @@ class Transmission:
 
     def plot_decoded_symbols(self):
         # Plots decoded symbols coloured by frequency bin
-        X = self.Xhats[0]
+        X = self.Xhats[-1]
         plt.scatter(
             X.real, X.imag, c=np.arange(len(X)), cmap="gist_rainbow_r", marker="."
         )
@@ -191,8 +192,10 @@ constellation_map = {
 
 # Known OFDM symbol randomly chooses from the available constellation values
 known_symbol = np.random.choice(list(constellation_map.values()), (8192 - 2) // 2)
-n = 5
+n = 50
 source = np.tile(known_symbol, n)
+
+fs = 48000
 
 transmission = Transmission(source, constellation_map, fs=fs)
 transmission.record_signal(afplay=True)
