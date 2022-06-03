@@ -34,7 +34,8 @@ class Transmission:
         symbols = self._create_symbols()
         header = self._create_header()
         body = self._create_body(symbols)
-        self.signal = np.concatenate((header, body))
+        footer = self._create_footer()
+        self.signal = np.concatenate((header, body, footer))
 
     def _create_symbols(self):
         symbols = []
@@ -73,6 +74,11 @@ class Transmission:
         self.chirp = Chirp(fmin=1e3, fmax=10e3, duration=1, fs=self.fs)
         return np.concatenate([pause, self.chirp.signal])
 
+    def _create_footer(self):
+        self.chirp = Chirp(fmin=1e3, fmax=10e3, duration=1, fs=self.fs)
+        pause = np.zeros(self.fs)
+        return np.concatenate([self.chirp.signal, pause])
+
     def _create_body(self, symbols):
         # TODO Include periodic resynchronisations/estimations etc.
         # For now only concatenates the symbols into one long signal.
@@ -106,20 +112,26 @@ class Transmission:
         ).flatten()
         print("Recording finished")
 
-    def synchronise(self, n, shift=0):
+    def synchronise(self, n):
         # End of chirp is half a second after chirp.
         # Frame starts 1 second later.
-        frame_start_index = self._find_chirp_peak() + self.fs // 2 - shift
+        peaks = self._find_chirp_peaks()
+        frame_start_index = peaks[0] + self.fs // 2
+        frame_end_index = peaks[-1] - self.fs // 2
+        print(frame_start_index, frame_end_index)
         self.Rs = self._identify_Rs(frame_start_index, n)
 
-    def _find_chirp_peak(self):
-        window = lambda x: x * np.hanning(len(x))
+    def _find_chirp_peaks(self):
+        # window = lambda x: x * np.hanning(len(x))
         conv = sig.convolve(
-            window(self.received_signal),
-            np.flip(window(self.chirp.signal)),
+            self.received_signal,
+            np.flip(self.chirp.signal),
             mode="same",
         )
-        return np.argmax(np.abs(conv))
+        peaks = sig.find_peaks(
+            conv, distance=transmission.fs, height=200, prominence=3, threshold=3
+        )[0]
+        return peaks
 
     def _identify_Rs(self, frame_start_index, n):
         Rs = []
@@ -198,8 +210,9 @@ source = np.tile(known_symbol, n)
 fs = 48000
 
 transmission = Transmission(source, constellation_map, fs=fs)
-transmission.record_signal(afplay=True)
-transmission.save_signals()
+# transmission.record_signal(afplay=True)
+# transmission.save_signals()
+transmission.load_signals()
 
 transmission.synchronise(n)
 transmission.estimate_H(n)
@@ -207,3 +220,5 @@ transmission.estimate_Xhats()
 
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
+
+breakpoint()
