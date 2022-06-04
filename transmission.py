@@ -207,11 +207,6 @@ class Transmission:
         phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
         corrected_phases = phases - phase_linear_trend
 
-        # Estimate synchronisation error from linear trend (not working?)
-        drift = (phase_grad[-1] - phase_grad[0]) / (2 * np.pi)
-        drift_int = int(drift - 1)
-        print(drift, " ---> ", drift_int)
-
         if plot:
             freqs = np.arange(self.H_est.shape[0])
 
@@ -251,12 +246,11 @@ class Transmission:
 
             plt.show()
 
-        return drift_int
+        return phase_linear_trend
 
-    def sync_correct(self, slope):
-        drift = self._find_drift()
-        phase_correction = np.exp(slope*1j*np.arange(self.N))
-        self.H_est *= phase_correction
+    def sync_correct(self):
+        phase_trend = self._find_drift(plot=True)
+        self.H_est *= np.exp(-1.j*phase_trend)
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -271,6 +265,7 @@ class Transmission:
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
+        print(np.angle(self.H_est))
         plt.show()
 
     def plot_decoded_symbols(self, i=-1):
@@ -324,10 +319,10 @@ transmission.plot_decoded_symbols()
 
 # Correct synchronisation for drift
 # print("2nd pass:")
-# transmission.sync_correct(slope=2*np.pi*0.091)
-# transmission.estimate_H(n)
+transmission.sync_correct()
+# transmission.estimate_H()
 # transmission.estimate_Xhats()
-# transmission.plot_channel()
+transmission.plot_channel()
 # transmission.plot_decoded_symbols()
 
 
