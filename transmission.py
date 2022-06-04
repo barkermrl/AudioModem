@@ -112,28 +112,40 @@ class Transmission:
         ).flatten()
         print("Recording finished")
 
-    def synchronise(self, n, drift=0):
+    def synchronise(self, offset=5, plot=False):
         # End of chirp is half a second after chirp.
-        # Frame starts 1 second later.
+        # Offset gives the number of samples to shift back by to ensure you're sampling early.
         peaks = self._find_chirp_peaks()
-        frame_start_index = peaks.min() + self.fs // 2 + drift
-        frame_end_index = peaks.max() - self.fs // 2 + drift
-        error = frame_end_index - frame_start_index - (n + 1) * (self.L + self.N)
-        # frame_end_index = frame_start_index + (n+1)*(self.L+self.N)
-        print(
+        frame_start_index = peaks.min() + self.fs // 2 - offset
+        frame_end_index = peaks.max() - self.fs // 2 - offset
+
+        num_symbols = np.round((frame_end_index - frame_start_index)/(self.L + self.N))
+
+        sampling_error = frame_end_index - frame_start_index - num_symbols * (self.L + self.N)
+
+        print("Peaks: {}\nFrame start: {}\nFrame end: {}\nNum symbols: {}\nSampling error: {}".format(
             peaks,
             frame_start_index,
             frame_end_index,
-            (frame_end_index - frame_start_index) / (self.L + self.N),
-            error,
+            num_symbols,
+            sampling_error
+            )
         )
 
-        plt.plot(self.received_signal)
-        plt.axvline(frame_start_index, color="r", linestyle=":")
-        plt.axvline(frame_end_index, color="r", linestyle=":")
-        plt.show()
+        self.Rs = self._identify_Rs(frame_start_index, num_symbols, sampling_error)
 
-        self.Rs = self._identify_Rs(frame_start_index, n)
+        if plot:
+            plt.plot(self.received_signal)
+            plt.axvline(frame_start_index, color="r", linestyle=":", label="Frame start/end")
+            plt.axvline(frame_end_index, color="r", linestyle=":")
+
+            plt.title("Received signal")
+            plt.xlabel("Sample index")
+            plt.ylabel("Amplitude")
+            plt.legend(loc="upper right")
+
+            plt.show()
+
 
     def _find_chirp_peaks(self):
         # window = lambda x: x * np.hanning(len(x))
@@ -145,20 +157,21 @@ class Transmission:
         peaks = sig.find_peaks(
             conv, height=0.5 * np.abs(conv).max(), distance=transmission.fs - 1
         )[0]
-        print(peaks)
         return peaks
 
-    def _identify_Rs(self, frame_start_index, n):
+    def _identify_Rs(self, frame_start_index, num_symbols, sampling_error):
         Rs = []
+        error_per_symbols = sampling_error/num_symbols
+
         for i in range(n):
-            start = frame_start_index + (self.L + self.N) * i + self.L
-            end = frame_start_index + (self.L + self.N) * (i + 1)
+            start = int( frame_start_index + self.L + np.rint((self.L + self.N + error_per_symbols) * i) )
+            end = start + self.N
             r = self.received_signal[start:end]
             R = np.fft.fft(r)
             Rs.append(R)
         return Rs
 
-    def estimate_H(self, n):
+    def estimate_H(self):
         # Returns a channel estimate from the known and received OFDM symbols
         R = np.vstack(self.Rs[:4])
         X = np.vstack(self.Xs[:4])
@@ -186,37 +199,57 @@ class Transmission:
 
         return phases
 
-    def _find_drift(self):
+    def _find_drift(self, plot=False):
         # Correct for wrapping of phases to [pi, -pi]
         phases = self._unwrap_phases()
 
         # Correct for linear trend from incorrect syncronisation
-        phase_grad = np.linspace(
-            phases[~np.isnan(phases)][0], phases[~np.isnan(phases)][-1], phases.shape[0]
-        )
-        # phases -= phase_grad
+        phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
+        corrected_phases = phases - phase_linear_trend
 
-        # Estimate synchronisation error from linear trend
+        # Estimate synchronisation error from linear trend (not working?)
         drift = (phase_grad[-1] - phase_grad[0]) / (2 * np.pi)
         drift_int = int(drift - 1)
         print(drift, " ---> ", drift_int)
 
-        plt.scatter(
-            np.arange(self.H_est.shape[0]),
-            np.angle(self.H_est),
-            color="blue",
-            marker="."
-        )
-        plt.scatter(np.arange(self.H_est.shape[0]), 
-            phases, color="red",
-            marker="."
-        )
-        plt.scatter(np.arange(self.H_est.shape[0]),
-            phase_grad,
-            color="black",
-            marker="."
-        )
-        plt.show()
+        if plot:
+            freqs = np.arange(self.H_est.shape[0])
+
+            plt.scatter(
+                freqs,
+                np.angle(self.H_est),
+                color="blue",
+                marker=".",
+                label="Wrapped phases"
+            )
+            plt.scatter(
+                freqs, 
+                phases,
+                color="green",
+                marker=".",
+                label="Unwrapped phases"
+            )
+            plt.scatter(
+                freqs,
+                phase_linear_trend,
+                color="grey",
+                marker=".",
+                label="Linear trend"
+            )
+            plt.scatter(
+                freqs, 
+                corrected_phases,
+                color="red",
+                marker=".",
+                label="Corrected phases"
+            )
+
+            plt.title("Channel Phase Correction")
+            plt.xlabel("Phase [rad]")
+            plt.ylabel("Frequency [Hz]")
+            plt.legend(loc="lower left")
+
+            plt.show()
 
         return drift_int
 
@@ -234,7 +267,7 @@ class Transmission:
         ax_left.set_xlabel("Frequency [Hz]")
         ax_left.set_ylabel("Magnitude [dB]")
 
-        ax_right.scatter(freqs, np.angle(self.H_est), marker=".")
+        ax_right.scatter(freqs, self._unwrap_phases(), marker=".")
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
@@ -258,7 +291,7 @@ class Transmission:
         plt.show()
 
 
-np.random.seed(0)  # Makes the random choices the same each time
+fs = 48000
 constellation_map = {
     "00": complex(1 / np.sqrt(2), 1 / np.sqrt(2)),
     "01": complex(-1 / np.sqrt(2), 1 / np.sqrt(2)),
@@ -270,41 +303,37 @@ constellation_map = {
 #             1: -1,
 #         }
 
-# Known OFDM symbol randomly chooses from the available constellation values
-# known_symbol = np.random.choice(list(constellation_map.values()), (4096 - 2) // 2)
+# Known OFDM symbols from the standard
 known_symbol = np.load("known_ofdm_symbol.npy")[1:4096//2]
-n = 50
+n = 25
 source = np.tile(known_symbol, n)
-
-fs = 48000
 
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source, constellation_map, fs=fs)
-transmission.record_signal()
-transmission.save_signals()
-# transmission.load_signals()
+# transmission.record_signal()
+# transmission.save_signals()
+transmission.load_signals()
 
 # Initial synchronisation
-print("1st pass:")
-transmission.synchronise(n, drift=-5)
-transmission.estimate_H(n)
+transmission.synchronise(plot=True)
+transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
 
 # Correct synchronisation for drift
 # print("2nd pass:")
-transmission.sync_correct(slope=2*np.pi*0.091)
+# transmission.sync_correct(slope=2*np.pi*0.091)
 # transmission.estimate_H(n)
 # transmission.estimate_Xhats()
-transmission.plot_channel()
+# transmission.plot_channel()
 # transmission.plot_decoded_symbols()
 
 
 """
-- Adjust OFDM symbol indicies from samples extra/missing
+- Adjust OFDM symbol indicies from samples extra/missing (DONE)
 - Change estimation to average magnitudes and angles separately
 - Add a function to check the error rate between the transmitted and received constellations
-    - Use decoder
+    - Use decoder?
 """
