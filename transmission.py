@@ -160,8 +160,8 @@ class Transmission:
 
     def estimate_H(self, n):
         # Returns a channel estimate from the known and received OFDM symbols
-        R = np.vstack(self.Rs[:n])
-        X = np.vstack(self.Xs[:n])
+        R = np.vstack(self.Rs[:4])
+        X = np.vstack(self.Xs[:4])
         self.H_est = np.mean(R / X, axis=0)
 
     def estimate_Xhats(self):
@@ -194,7 +194,7 @@ class Transmission:
         phase_grad = np.linspace(
             phases[~np.isnan(phases)][0], phases[~np.isnan(phases)][-1], phases.shape[0]
         )
-        phases -= phase_grad
+        # phases -= phase_grad
 
         # Estimate synchronisation error from linear trend
         drift = (phase_grad[-1] - phase_grad[0]) / (2 * np.pi)
@@ -205,17 +205,25 @@ class Transmission:
             np.arange(self.H_est.shape[0]),
             np.angle(self.H_est),
             color="blue",
-            marker=".",
+            marker="."
         )
-        plt.scatter(np.arange(self.H_est.shape[0]), phases, color="red", marker=".")
+        plt.scatter(np.arange(self.H_est.shape[0]), 
+            phases, color="red",
+            marker="."
+        )
+        plt.scatter(np.arange(self.H_est.shape[0]),
+            phase_grad,
+            color="black",
+            marker="."
+        )
         plt.show()
 
         return drift_int
 
-    def sync_correct(self, n):
+    def sync_correct(self, slope):
         drift = self._find_drift()
-
-        self.synchronise(n, drift=drift)
+        phase_correction = np.exp(slope*1j*np.arange(self.N))
+        self.H_est *= phase_correction
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -226,20 +234,22 @@ class Transmission:
         ax_left.set_xlabel("Frequency [Hz]")
         ax_left.set_ylabel("Magnitude [dB]")
 
-        ax_right.scatter(freqs, self._unwrap_phases(), marker=".")
+        ax_right.scatter(freqs, np.angle(self.H_est), marker=".")
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
         plt.show()
 
-    def plot_decoded_symbols(self):
+    def plot_decoded_symbols(self, i=-1):
         # Plots decoded symbols coloured by frequency bin
-        X = self.Xhats[-1]
+        X = self.Xhats[i]
         plt.scatter(
             X.real, X.imag, c=np.arange(len(X)), cmap="gist_rainbow_r", marker="."
         )
 
         plt.title("Decoded constellation symbols")
+        plt.axhline(0, color='black', linestyle=':')
+        plt.axvline(0, color='black', linestyle=':')
         plt.xlabel("Re")
         plt.ylabel("Im")
         cbar = plt.colorbar()
@@ -261,7 +271,8 @@ constellation_map = {
 #         }
 
 # Known OFDM symbol randomly chooses from the available constellation values
-known_symbol = np.random.choice(list(constellation_map.values()), (4096 - 2) // 2)
+# known_symbol = np.random.choice(list(constellation_map.values()), (4096 - 2) // 2)
+known_symbol = np.load("known_ofdm_symbol.npy")[1:4096//2]
 n = 50
 source = np.tile(known_symbol, n)
 
@@ -270,13 +281,13 @@ fs = 48000
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source, constellation_map, fs=fs)
-transmission.record_signal(afplay=True)
+transmission.record_signal()
 transmission.save_signals()
 # transmission.load_signals()
 
 # Initial synchronisation
 print("1st pass:")
-transmission.synchronise(n, drift=0)
+transmission.synchronise(n, drift=-5)
 transmission.estimate_H(n)
 transmission.estimate_Xhats()
 transmission.plot_channel()
@@ -284,8 +295,16 @@ transmission.plot_decoded_symbols()
 
 # Correct synchronisation for drift
 # print("2nd pass:")
-# transmission.sync_correct(n)
+transmission.sync_correct(slope=2*np.pi*0.091)
 # transmission.estimate_H(n)
 # transmission.estimate_Xhats()
-# transmission.plot_channel()
+transmission.plot_channel()
 # transmission.plot_decoded_symbols()
+
+
+"""
+- Adjust OFDM symbol indicies from samples extra/missing
+- Change estimation to average magnitudes and angles separately
+- Add a function to check the error rate between the transmitted and received constellations
+    - Use decoder
+"""
