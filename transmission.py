@@ -227,7 +227,11 @@ class Transmission:
                 label="Wrapped phases",
             )
             plt.scatter(
-                freqs, phases, color="green", marker=".", label="Unwrapped phases"
+                freqs,
+                phases,
+                color="green",
+                marker=".",
+                label="Unwrapped phases"
             )
             plt.scatter(
                 freqs,
@@ -245,8 +249,8 @@ class Transmission:
             )
 
             plt.title("Channel Phase Correction")
-            plt.xlabel("Phase [rad]")
-            plt.ylabel("Frequency [Hz]")
+            plt.ylabel("Phase [rad]")
+            plt.xlabel("Frequency [Hz]")
             plt.legend(loc="lower left")
 
             plt.show()
@@ -266,11 +270,11 @@ class Transmission:
         ax_left.set_xlabel("Frequency [Hz]")
         ax_left.set_ylabel("Magnitude [dB]")
 
-        ax_right.scatter(freqs, self._unwrap_phases(), marker=".")
+        print(np.angle(self.H_est))
+        ax_right.scatter(freqs, np.angle(self.H_est), marker=".")
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
-        print(np.angle(self.H_est))
         plt.show()
 
     def plot_decoded_symbols(self, i=-1):
@@ -311,7 +315,7 @@ source = np.tile(known_symbol, n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source, constellation_map, fs=fs)
-# transmission.record_signal(afplay=True)
+# transmission.record_signal()
 # transmission.save_signals()
 transmission.load_signals()
 
