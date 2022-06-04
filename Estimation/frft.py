@@ -6,6 +6,7 @@ Source: https://github.com/nanaln/python_frft/blob/master/frft/frft.py.
 import numpy as np
 import scipy.signal
 from scipy.optimize import minimize_scalar
+from scipy.signal import chirp
 
 import matplotlib.pyplot as plt
 
@@ -65,23 +66,21 @@ def frft(f, a):
     f = np.hstack((np.zeros(N - 1), _sincinterp(f), np.zeros(N - 1))).T
 
     # chirp premultiplication
-    chrp = np.exp(-1j * np.pi / N * tana2 / 4 *
-                     np.arange(-2 * N + 2, 2 * N - 1).T ** 2)
+    chrp = np.exp(-1j * np.pi / N * tana2 / 4 * np.arange(-2 * N + 2, 2 * N - 1).T ** 2)
     f = chrp * f
 
     # chirp convolution
     c = np.pi / N / sina / 4
     ret = scipy.signal.fftconvolve(
-        np.exp(1j * c * np.arange(-(4 * N - 4), 4 * N - 3).T ** 2),
-        f
+        np.exp(1j * c * np.arange(-(4 * N - 4), 4 * N - 3).T ** 2), f
     )
-    ret = ret[4 * N - 4:8 * N - 7] * np.sqrt(c / np.pi)
+    ret = ret[4 * N - 4 : 8 * N - 7] * np.sqrt(c / np.pi)
 
     # chirp post multiplication
     ret = chrp * ret
 
     # normalizing constant
-    ret = np.exp(-1j * (1 - a) * np.pi / 4) * ret[N - 1:-N + 1:2]
+    ret = np.exp(-1j * (1 - a) * np.pi / 4) * ret[N - 1 : -N + 1 : 2]
 
     return ret
 
@@ -109,7 +108,7 @@ def optimise_a(signal):
     ----------
     signal: numpy array
         A numpy array to transform (normally a chirp).
-    
+
     Returns
     -------
     res : OptimizeResult
@@ -121,28 +120,30 @@ def optimise_a(signal):
     """
 
     def _peak_height(a):
-        return -np.max(np.abs(frft(signal,a)))
+        return -np.max(np.abs(frft(signal, a)))
 
-    return minimize_scalar(_peak_height, bounds=[0.0,2.0], method='bounded', options={'maxiter':30})
+    return minimize_scalar(
+        _peak_height, bounds=[0.0, 2.0], method="bounded", options={"maxiter": 30}
+    )
 
 
 def _sincinterp(x):
     N = len(x)
     y = np.zeros(2 * N - 1, dtype=x.dtype)
-    y[:2 * N:2] = x
+    y[: 2 * N : 2] = x
     xint = scipy.signal.fftconvolve(
-        y[:2 * N],
+        y[: 2 * N],
         np.sinc(np.arange(-(2 * N - 3), (2 * N - 2)).T / 2),
     )
-    return xint[2 * N - 3: -2 * N + 3]
+    return xint[2 * N - 3 : -2 * N + 3]
 
 
 # def frft2(x, alpha):
 #     N = len(x)
 #     C = np.power(dft(N), alpha)
-    
+
 #     F = np.matmul(C, np.array([x]).T)
-    
+
 #     return F
 
 # def frft(x, alpha):
@@ -151,3 +152,24 @@ def _sincinterp(x):
 #         for k in range(N):
 #             F[n] += x[k] * np.exp(2*np.pi*1.j*alpha*n*k/N)
 #     return F
+
+
+n = 44100
+fs = 44100
+t = np.arange(n) / fs
+chirps = chirp(t, 1e3, 1, 10e3, method="linear")
+
+plt.figure(figsize=(11, 3), dpi=150)
+plt.subplot(1, 4, 1)
+plt.plot(np.abs(frft(chirps, 1.0)))
+
+plt.subplot(1, 4, 2)
+plt.plot(np.abs(frft(chirps, 0.95)))
+
+plt.subplot(1, 4, 3)
+plt.plot(np.abs(frft(chirps, 0.9)))
+
+plt.subplot(1, 4, 4)
+plt.plot(np.abs(frft(chirps, 0.8718)))
+
+plt.show()
