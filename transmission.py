@@ -119,16 +119,17 @@ class Transmission:
         frame_start_index = peaks.min() + self.fs // 2 - offset
         frame_end_index = peaks.max() - self.fs // 2 - offset
 
-        num_symbols = np.round((frame_end_index - frame_start_index)/(self.L + self.N))
+        num_symbols = np.round(
+            (frame_end_index - frame_start_index) / (self.L + self.N)
+        )
 
-        sampling_error = frame_end_index - frame_start_index - num_symbols * (self.L + self.N)
+        sampling_error = (
+            frame_end_index - frame_start_index - num_symbols * (self.L + self.N)
+        )
 
-        print("Peaks: {}\nFrame start: {}\nFrame end: {}\nNum symbols: {}\nSampling error: {}".format(
-            peaks,
-            frame_start_index,
-            frame_end_index,
-            num_symbols,
-            sampling_error
+        print(
+            "Peaks: {}\nFrame start: {}\nFrame end: {}\nNum symbols: {}\nSampling error: {}".format(
+                peaks, frame_start_index, frame_end_index, num_symbols, sampling_error
             )
         )
 
@@ -136,7 +137,9 @@ class Transmission:
 
         if plot:
             plt.plot(self.received_signal)
-            plt.axvline(frame_start_index, color="r", linestyle=":", label="Frame start/end")
+            plt.axvline(
+                frame_start_index, color="r", linestyle=":", label="Frame start/end"
+            )
             plt.axvline(frame_end_index, color="r", linestyle=":")
 
             plt.title("Received signal")
@@ -145,7 +148,6 @@ class Transmission:
             plt.legend(loc="upper right")
 
             plt.show()
-
 
     def _find_chirp_peaks(self):
         # window = lambda x: x * np.hanning(len(x))
@@ -161,10 +163,14 @@ class Transmission:
 
     def _identify_Rs(self, frame_start_index, num_symbols, sampling_error):
         Rs = []
-        error_per_symbols = sampling_error/num_symbols
+        error_per_symbols = sampling_error / num_symbols
 
         for i in range(n):
-            start = int( frame_start_index + self.L + np.rint((self.L + self.N + error_per_symbols) * i) )
+            start = int(
+                frame_start_index
+                + self.L
+                + np.rint((self.L + self.N + error_per_symbols) * i)
+            )
             end = start + self.N
             r = self.received_signal[start:end]
             R = np.fft.fft(r)
@@ -175,7 +181,10 @@ class Transmission:
         # Returns a channel estimate from the known and received OFDM symbols
         R = np.vstack(self.Rs[:4])
         X = np.vstack(self.Xs[:4])
-        self.H_est = np.mean(R / X, axis=0)
+        magnitudes = np.mean(np.abs(R / X), axis=0)
+        angles = np.mean(np.angle(R / X), axis=0)
+        # self.H_est = np.mean(R / X, axis=0)
+        self.H_est = magnitudes * np.exp(1j * angles)
 
     def estimate_Xhats(self):
         self.Xhats = []
@@ -215,28 +224,24 @@ class Transmission:
                 np.angle(self.H_est),
                 color="blue",
                 marker=".",
-                label="Wrapped phases"
+                label="Wrapped phases",
             )
             plt.scatter(
-                freqs, 
-                phases,
-                color="green",
-                marker=".",
-                label="Unwrapped phases"
+                freqs, phases, color="green", marker=".", label="Unwrapped phases"
             )
             plt.scatter(
                 freqs,
                 phase_linear_trend,
                 color="grey",
                 marker=".",
-                label="Linear trend"
+                label="Linear trend",
             )
             plt.scatter(
-                freqs, 
+                freqs,
                 corrected_phases,
                 color="red",
                 marker=".",
-                label="Corrected phases"
+                label="Corrected phases",
             )
 
             plt.title("Channel Phase Correction")
@@ -250,7 +255,7 @@ class Transmission:
 
     def sync_correct(self):
         phase_trend = self._find_drift(plot=True)
-        self.H_est *= np.exp(-1.j*phase_trend)
+        self.H_est *= np.exp(-1.0j * phase_trend)
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -276,8 +281,8 @@ class Transmission:
         )
 
         plt.title("Decoded constellation symbols")
-        plt.axhline(0, color='black', linestyle=':')
-        plt.axvline(0, color='black', linestyle=':')
+        plt.axhline(0, color="black", linestyle=":")
+        plt.axvline(0, color="black", linestyle=":")
         plt.xlabel("Re")
         plt.ylabel("Im")
         cbar = plt.colorbar()
@@ -299,14 +304,14 @@ constellation_map = {
 #         }
 
 # Known OFDM symbols from the standard
-known_symbol = np.load("known_ofdm_symbol.npy")[1:4096//2]
+known_symbol = np.load("known_ofdm_symbol.npy")[1 : 4096 // 2]
 n = 25
 source = np.tile(known_symbol, n)
 
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source, constellation_map, fs=fs)
-# transmission.record_signal()
+# transmission.record_signal(afplay=True)
 # transmission.save_signals()
 transmission.load_signals()
 
