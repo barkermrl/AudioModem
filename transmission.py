@@ -112,12 +112,12 @@ class Transmission:
         ).flatten()
         print("Recording finished")
 
-    def synchronise(self, n):
+    def synchronise(self, n, drift=0):
         # End of chirp is half a second after chirp.
         # Frame starts 1 second later.
         peaks = self._find_chirp_peaks()
-        frame_start_index = peaks.min() + self.fs // 2
-        frame_end_index = peaks.max() - self.fs // 2
+        frame_start_index = peaks.min() + self.fs // 2 + drift
+        frame_end_index = peaks.max() - self.fs // 2 + drift
         error = frame_end_index - frame_start_index - (n+1)*(self.L+self.N)
         # frame_end_index = frame_start_index + (n+1)*(self.L+self.N)
         print(peaks,
@@ -170,10 +170,9 @@ class Transmission:
             # Bins determined by standard (86 to 854 inclusive)
             self.Xhats.append(X[86:854])
 
-    def correct_drift(self):
-        phases = np.angle(self.H_est)
-
+    def _unwrap_phases(self):
         # Correct for wrapping of phases to [pi, -pi]
+        phases = np.angle(self.H_est)
         for i in range(phases.shape[0]-1):
             diff = phases[i+1] - phases[i]
             if diff >= np.pi:
@@ -181,17 +180,31 @@ class Transmission:
             elif diff <= -np.pi:
                 phases[i+1:] += 2*np.pi
 
+        return phases    
+
+    def _find_drift(self):
+        # Correct for wrapping of phases to [pi, -pi]
+        phases = self._unwrap_phases()
+
         # Correct for linear trend from incorrect syncronisation
-        phase_grad = np.linspace(phases[~np.isnan(phases)][0], phases[-1], phases.shape[0])
+        phase_grad = np.linspace(phases[~np.isnan(phases)][0], phases[~np.isnan(phases)][-1], phases.shape[0])
         phases -= phase_grad
 
         # Estimate synchronisation error from linear trend
-        error = (phase_grad[-1]-phase_grad[0]) / (2*np.pi)
-        print(error)
+        drift = (phase_grad[-1]-phase_grad[0]) / (2*np.pi)
+        drift_int = int(drift-1)
+        print(drift, " ---> ", drift_int)
 
         plt.scatter(np.arange(self.H_est.shape[0]), np.angle(self.H_est), color="blue", marker=".")
         plt.scatter(np.arange(self.H_est.shape[0]), phases, color="red", marker=".")
         plt.show()
+
+        return drift_int
+
+    def sync_correct(self, n):
+        drift = self._find_drift()
+
+        self.synchronise(n, drift=drift)
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -202,10 +215,9 @@ class Transmission:
         ax_left.set_xlabel("Frequency [Hz]")
         ax_left.set_ylabel("Magnitude [dB]")
 
-        ax_right.scatter(freqs, np.angle(self.H_est))
+        ax_right.scatter(freqs, self._unwrap_phases(), marker=".")
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
-        ax_right.set_ylim(-np.pi, np.pi)
 
         plt.show()
 
@@ -244,15 +256,25 @@ source = np.tile(known_symbol, n)
 
 fs = 48000
 
+np.seterr(all="ignore")     # Supresses runtime warnings
+
 transmission = Transmission(source, constellation_map, fs=fs)
 # transmission.record_signal()
 # transmission.save_signals()
 transmission.load_signals()
 
+# Initial synchronisation
+print("1st pass:")
 transmission.synchronise(n)
 transmission.estimate_H(n)
 transmission.estimate_Xhats()
-
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
-transmission.correct_drift()
+
+# Correct synchronisation for drift
+print("2nd pass:")
+transmission.sync_correct(n)
+transmission.estimate_H(n)
+transmission.estimate_Xhats()
+transmission.plot_channel()
+transmission.plot_decoded_symbols()
