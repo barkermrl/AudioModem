@@ -181,9 +181,11 @@ class Transmission:
         # Returns a channel estimate from the known and received OFDM symbols
         R = np.vstack(self.Rs[:4])
         X = np.vstack(self.Xs[:4])
+        
+        # self.H_est = np.mean(R / X, axis=0)
+        
         magnitudes = np.mean(np.abs(R / X), axis=0)
         angles = np.mean(np.angle(R / X), axis=0)
-        # self.H_est = np.mean(R / X, axis=0)
         self.H_est = magnitudes * np.exp(1j * angles)
 
     def estimate_Xhats(self):
@@ -203,7 +205,7 @@ class Transmission:
             diff = phases[i + 1] - phases[i]
             if diff >= np.pi:
                 phases[i + 1 :] -= 2 * np.pi
-            elif diff <= -np.pi:
+            elif diff <= np.pi:
                 phases[i + 1 :] += 2 * np.pi
 
         return phases
@@ -212,10 +214,14 @@ class Transmission:
         # Correct for wrapping of phases to [pi, -pi]
         phases = self._unwrap_phases()
 
-        # Correct for linear trend from incorrect syncronisation
-        phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
+        # Correct for linear trend by adjusting so that corrected_phases[-1] = -corrected_phases[1] for conjugacy
+        # phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
+        grad = (phases[1]+phases[-1])/self.N
+        phase_linear_trend = grad * np.arange(0, self.N)
         corrected_phases = phases - phase_linear_trend
 
+        assert np.allclose(corrected_phases[1:self.N//2], -np.flip(corrected_phases[1+self.N//2:])) == True     # Assert conjugacy
+        
         if plot:
             freqs = np.arange(self.H_est.shape[0])
 
@@ -255,11 +261,11 @@ class Transmission:
 
             plt.show()
 
-        return phase_linear_trend
+        return corrected_phases
 
     def sync_correct(self):
-        phase_trend = self._find_drift(plot=True)
-        self.H_est *= np.exp(-1.0j * phase_trend)
+        correct_phases = self._find_drift()
+        self.H_est = np.abs(self.H_est) * np.exp(1.j*correct_phases)
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -270,8 +276,8 @@ class Transmission:
         ax_left.set_xlabel("Frequency [Hz]")
         ax_left.set_ylabel("Magnitude [dB]")
 
-        print(np.angle(self.H_est))
-        ax_right.scatter(freqs, np.angle(self.H_est), marker=".")
+        print(np.angle(self.H_est)[1:])
+        ax_right.scatter(freqs, self._unwrap_phases(), marker=".")
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
@@ -320,7 +326,7 @@ transmission = Transmission(source, constellation_map, fs=fs)
 transmission.load_signals()
 
 # Initial synchronisation
-transmission.synchronise(plot=True)
+transmission.synchronise()
 transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
@@ -332,7 +338,7 @@ transmission.sync_correct()
 # transmission.estimate_H()
 # transmission.estimate_Xhats()
 transmission.plot_channel()
-# transmission.plot_decoded_symbols()
+transmission.plot_decoded_symbols()
 
 
 """
