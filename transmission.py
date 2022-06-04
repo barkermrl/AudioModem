@@ -116,9 +116,21 @@ class Transmission:
         # End of chirp is half a second after chirp.
         # Frame starts 1 second later.
         peaks = self._find_chirp_peaks()
-        frame_start_index = peaks[0] + self.fs // 2
-        frame_end_index = peaks[-1] - self.fs // 2
-        print(frame_start_index, frame_end_index)
+        frame_start_index = peaks.min() + self.fs // 2
+        frame_end_index = peaks.max() - self.fs // 2
+        error = frame_end_index - frame_start_index - (n+1)*(self.L+self.N)
+        # frame_end_index = frame_start_index + (n+1)*(self.L+self.N)
+        print(peaks,
+                frame_start_index, frame_end_index,
+                (frame_end_index - frame_start_index)/(self.L + self.N),
+                error
+            )
+
+        plt.plot(self.received_signal)
+        plt.axvline(frame_start_index, color = "r", linestyle = ":")
+        plt.axvline(frame_end_index, color = "r", linestyle = ":")
+        plt.show()
+
         self.Rs = self._identify_Rs(frame_start_index, n)
 
     def _find_chirp_peaks(self):
@@ -129,7 +141,7 @@ class Transmission:
             mode="same",
         )
         peaks = sig.find_peaks(
-            conv, distance=transmission.fs, height=200, prominence=3, threshold=3
+            conv, height=0.5*np.abs(conv).max(), distance=transmission.fs - 1
         )[0]
         return peaks
 
@@ -157,6 +169,29 @@ class Transmission:
             # Only add useful part of carrier data X
             # Bins determined by standard (86 to 854 inclusive)
             self.Xhats.append(X[86:854])
+
+    def correct_drift(self):
+        phases = np.angle(self.H_est)
+
+        # Correct for wrapping of phases to [pi, -pi]
+        for i in range(phases.shape[0]-1):
+            diff = phases[i+1] - phases[i]
+            if diff >= np.pi:
+                phases[i+1:] -= 2*np.pi
+            elif diff <= -np.pi:
+                phases[i+1:] += 2*np.pi
+
+        # Correct for linear trend from incorrect syncronisation
+        phase_grad = np.linspace(phases[~np.isnan(phases)][0], phases[-1], phases.shape[0])
+        phases -= phase_grad
+
+        # Estimate synchronisation error from linear trend
+        error = (phase_grad[-1]-phase_grad[0]) / (2*np.pi)
+        print(error)
+
+        plt.scatter(np.arange(self.H_est.shape[0]), np.angle(self.H_est), color="blue", marker=".")
+        plt.scatter(np.arange(self.H_est.shape[0]), phases, color="red", marker=".")
+        plt.show()
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -202,15 +237,15 @@ constellation_map = {
 #             1: -1,
 #         }
 
-# Known OFDM symbol randomly chooses from the available constellation values
+# Known OFDM symbol randomly chooses from the available constellation values 
 known_symbol = np.random.choice(list(constellation_map.values()), (4096 - 2) // 2)
-n = 50
+n = 10
 source = np.tile(known_symbol, n)
 
 fs = 48000
 
 transmission = Transmission(source, constellation_map, fs=fs)
-# transmission.record_signal(afplay=True)
+# transmission.record_signal()
 # transmission.save_signals()
 transmission.load_signals()
 
@@ -220,5 +255,4 @@ transmission.estimate_Xhats()
 
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
-
-breakpoint()
+transmission.correct_drift()
