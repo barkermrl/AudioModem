@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# npy files
+*.npy
+
 # tmp wav files
 tmp.wav
 
