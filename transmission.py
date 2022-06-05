@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
 import scipy.io.wavfile as wav
+from scipy.optimize import minimize
 import sounddevice as sd
 import subprocess
 
@@ -127,7 +128,7 @@ class Transmission:
         ).flatten()
         print("Recording finished")
 
-    def synchronise(self, offset=0, plot=False):
+    def synchronise(self, offset=0, print_results = False, plot=False):
         # End of chirp is half a second after chirp.
         # Offset gives the number of samples to shift back by to ensure you're sampling early.
         # Peaks should be length 4 (1 chirp at the start and end of signal)
@@ -167,21 +168,23 @@ class Transmission:
         # A negative error means we've received too few samples
         error = last_known_ofdm_start_index - last_known_ofdm_start_index_est
         error_per_sample = error / (peaks[-2] - peaks[1])
-        error_per_sample *= 1.1
-        print(error_per_sample)
+        # error_per_sample *= 1.1
+        # print(error_per_sample)
 
         self.drift_per_sample = error_per_sample
 
-        print(
-            f"""
-            Peaks: {peaks}
-            Num symbols: {num_symbols}
-            First OFDM block: {first_known_ofdm_start_index} to {first_known_ofdm_end_index}
-            Last OFDM block (length): {last_known_ofdm_start_index_est} to {last_known_ofdm_end_index_est}
-            Last OFDM block (chirp): {last_known_ofdm_start_index} to {last_known_ofdm_end_index}            
-            Sampling error (-ve means samples missed): {error}
-        """
-        )
+        if print_results:
+            print(
+                f"""
+                Peaks: {peaks}
+                Num symbols: {num_symbols}
+                First OFDM block: {first_known_ofdm_start_index} to {first_known_ofdm_end_index}
+                Last OFDM block (length): {last_known_ofdm_start_index_est} to {last_known_ofdm_end_index_est}
+                Last OFDM block (chirp): {last_known_ofdm_start_index} to {last_known_ofdm_end_index}            
+                Sampling error (-ve means samples missed): {error}
+                Drift per sample: {error_per_sample}
+            """
+            )
 
         if plot:
             plt.plot(self.received_signal)
@@ -263,16 +266,8 @@ class Transmission:
 
     def estimate_H(self):
         # Returns a channel estimate from the known and received OFDM symbols
-        H_est_start = self._complex_average(self.known_symbols_start)
-        H_est_end = self._complex_average(self.known_symbols_end)
-        self.H_est = H_est_start
-
-    def _complex_average(self, known_symbols, plot_each=False):
-        r = known_symbols.reshape((-1, N))
+        r = self.known_symbols_start.reshape((-1, N))
         R = np.fft.fft(r)
-        # magnitudes = np.mean(np.abs(R / KNOWN_SYMBOL_BIG_X), axis=0)
-        # angles = np.mean(np.angle(R / KNOWN_SYMBOL_BIG_X), axis=0)
-        # return magnitudes * np.exp(1j * angles)
 
         temp = np.concatenate([
             [0],
@@ -281,42 +276,12 @@ class Transmission:
             np.arange(1-N//2, 0) / N
         ])
 
-        # temp = np.arange(0, N)/N
-        # temp[N//2] = 0
-
         for i, R_block in enumerate(R):
             drift_at_block_start = self.drift_per_sample * (L + N * i)
             drift_correction = np.exp(2j * np.pi * drift_at_block_start * temp)
             R_block *= drift_correction
 
-        H_est = np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
-
-        if plot_each:
-            freqs = np.linspace(0, FS, N)
-            fig, axs = plt.subplots(2, 5)
-            for i in range(axs.shape[1] - 1):
-                axs[0, i].set_title(f"H_est from known OFDM {i}")
-
-                axs[0, i].plot(freqs, 10 * np.log10(np.abs(H_est_matrix[i, :])))
-                axs[0, i].set_xlabel("Freq. [Hz]")
-                axs[0, i].set_ylabel("Mag. [dB]")
-
-                axs[1, i].scatter(freqs, np.angle(H_est_matrix[i, :]), marker=".")
-                axs[1, i].set_xlabel("Freq. [Hz]")
-                axs[1, i].set_ylabel("Phase [rad]")
-
-            axs[0, 4].set_title("H_est from average")
-
-            axs[0, 4].plot(freqs, 10 * np.log10(np.abs(H_est)))
-            axs[0, 4].set_xlabel("Freq. [Hz]")
-            axs[0, 4].set_ylabel("Phase [rad]")
-
-            axs[1, 4].scatter(freqs, np.angle(H_est_matrix[i, :]), marker=".")
-            axs[1, 4].set_xlabel("Freq. [Hz]")
-            axs[1, 4].set_ylabel("Phase [rad]")
-            plt.show()
-
-        return H_est
+        self.H_est = np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
 
     def estimate_Xhats(self):
         self.Xhats = []
@@ -327,63 +292,6 @@ class Transmission:
             # Only add useful part of carrier data X
             # Bins determined by standard (86 to 854 inclusive)
             self.Xhats.append(X[FREQ_MIN:FREQ_MAX])
-
-    def _unwrap_phases(self):
-        # Correct for wrapping of phases to [pi, -pi]
-        phases = np.angle(self.H_est)
-        for i in range(phases.shape[0] - 1):
-            diff = phases[i + 1] - phases[i]
-            if diff >= np.pi:
-                phases[i + 1 :] -= 2 * np.pi
-            elif diff <= -np.pi:
-                phases[i + 1 :] += 2 * np.pi
-
-        return phases
-
-    def _find_drift(self, plot=False):
-        # Correct for wrapping of phases to [pi, -pi]
-        phases = self._unwrap_phases()
-
-        # Correct for linear trend from incorrect syncronisation
-        phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
-        corrected_phases = phases - phase_linear_trend
-
-        if plot:
-            freqs = np.arange(self.H_est.shape[0])
-
-            plt.scatter(
-                freqs,
-                np.angle(self.H_est),
-                color="blue",
-                marker=".",
-                label="Wrapped phases",
-            )
-            plt.scatter(
-                freqs, phases, color="green", marker=".", label="Unwrapped phases"
-            )
-            plt.scatter(
-                freqs,
-                phase_linear_trend,
-                color="grey",
-                marker=".",
-                label="Linear trend",
-            )
-            plt.scatter(
-                freqs,
-                corrected_phases,
-                color="red",
-                marker=".",
-                label="Corrected phases",
-            )
-
-            plt.title("Channel Phase Correction")
-            plt.xlabel("Phase [rad]")
-            plt.ylabel("Frequency [Hz]")
-            plt.legend(loc="lower left")
-
-            plt.show()
-
-        return phase_linear_trend
 
     def _check_decoding(self, i):
         get_sign_tuple = lambda x: (np.sign(x.real), np.sign(x.imag))
@@ -401,10 +309,6 @@ class Transmission:
 
         # breakpoint()
         return proportion_correct
-
-    def sync_correct(self, plot=False):
-        phase_trend = self._find_drift(plot)
-        self.H_est *= np.exp(-1.0j * phase_trend)
 
     def plot_channel(self):
         _, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(15, 5))
@@ -446,7 +350,47 @@ class Transmission:
 
     def absolute_violation(self):
         # Change the drift per sample by some factor
-        # Optimise drift factor by looking at the decoded correctly probability over the known symbols
+        # Optimise drift factor by looking at the decoded correctly proportion over the known symbols
+        
+        def optimise_over_known_OFDM(factor):
+            # Returns a channel estimate from the known and received OFDM symbols
+            # Also adjusts for drift factor
+            r_start = self.known_symbols_start.reshape((-1, N))
+            R_start = np.fft.fft(r)
+
+            temp = np.concatenate([
+                [0],
+                np.arange(1, N // 2) / N,
+                [0],
+                np.arange(1-N//2, 0) / N
+            ])
+
+            for i, R_block in enumerate(R_start):
+                drift_at_block_start = self.drift_per_sample * factor * (L + N * i)
+                drift_correction = np.exp(2j * np.pi * drift_at_block_start * temp)
+                R_block *= drift_correction
+
+            for i, R_block in enumerate(R_end):
+                drift_at_block_start = self.drift_per_sample * factor * (L + N * i)
+                drift_correction = np.exp(2j * np.pi * drift_at_block_start * temp)
+                R_block *= drift_correction 
+
+            H_est = np.mean(R_start / KNOWN_SYMBOL_BIG_X, axis=0)
+
+            Xhat = np.mean(R_start, axis=0) / H_est
+
+            X_diffs = (Xhat - KNOWN_SYMBOL_BIG_X)
+            mmse = np.mean(X_diffs * np.conjugate(X_diffs))
+
+            return mmse
+
+        res = minimize(optimise_over_known_OFDM, 1.1, method="Nelder-Mead")
+        factor_opt = res.x
+        mmse_opt = res.fun
+        print(factor_opt, mmse_opt)
+
+        self.drift_per_sample *= factor_opt
+
 
 
 
@@ -463,6 +407,7 @@ transmission.load_signals()
 
 # Initial synchronisation
 transmission.synchronise(plot=True)
+# transmission.absolute_violation()
 transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
@@ -472,6 +417,7 @@ transmission.plot_decoded_symbols()
 print("Block no. -- Frac. decoded correctly")
 for i in range(n):
     print(i, "          ", transmission._check_decoding(i=i))
+
 
 # Correct synchronisation for drift
 # print("2nd pass:")
