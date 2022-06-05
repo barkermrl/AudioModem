@@ -335,7 +335,7 @@ class Transmission:
             diff = phases[i + 1] - phases[i]
             if diff >= np.pi:
                 phases[i + 1 :] -= 2 * np.pi
-            elif diff <= -np.pi:
+            elif diff <= np.pi:
                 phases[i + 1 :] += 2 * np.pi
 
         return phases
@@ -344,10 +344,14 @@ class Transmission:
         # Correct for wrapping of phases to [pi, -pi]
         phases = self._unwrap_phases()
 
-        # Correct for linear trend from incorrect syncronisation
-        phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
+        # Correct for linear trend by adjusting so that corrected_phases[-1] = -corrected_phases[1] for conjugacy
+        # phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
+        grad = (phases[1]+phases[-1])/self.N
+        phase_linear_trend = grad * np.arange(0, self.N)
         corrected_phases = phases - phase_linear_trend
 
+        assert np.allclose(corrected_phases[1:self.N//2], -np.flip(corrected_phases[1+self.N//2:])) == True     # Assert conjugacy
+        
         if plot:
             freqs = np.arange(self.H_est.shape[0])
 
@@ -359,7 +363,11 @@ class Transmission:
                 label="Wrapped phases",
             )
             plt.scatter(
-                freqs, phases, color="green", marker=".", label="Unwrapped phases"
+                freqs,
+                phases,
+                color="green",
+                marker=".",
+                label="Unwrapped phases"
             )
             plt.scatter(
                 freqs,
@@ -377,13 +385,13 @@ class Transmission:
             )
 
             plt.title("Channel Phase Correction")
-            plt.xlabel("Phase [rad]")
-            plt.ylabel("Frequency [Hz]")
+            plt.ylabel("Phase [rad]")
+            plt.xlabel("Frequency [Hz]")
             plt.legend(loc="lower left")
 
             plt.show()
 
-        return phase_linear_trend
+        return corrected_phases
 
     def _check_decoding(self, i):
         get_sign_tuple = lambda x: (np.sign(x.real), np.sign(x.imag))
@@ -457,12 +465,13 @@ source = np.random.choice(VALUES, N_BINS * n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
+
 # transmission.record_signal()
 # transmission.save_signals()
 transmission.load_signals()
 
 # Initial synchronisation
-transmission.synchronise(plot=True)
+transmission.synchronise()
 transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
@@ -478,6 +487,7 @@ for i in range(n):
 # transmission.sync_correct()
 # transmission.estimate_H()
 # transmission.estimate_Xhats()
+
 # transmission.plot_channel()
 # transmission.plot_decoded_symbols()
 
