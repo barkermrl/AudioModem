@@ -137,13 +137,13 @@ class Transmission:
         assert len(peaks) == 4, f"Found {len(peaks)} peaks, expected 4"
 
         # Get starting known OFDM blocks from chirp synchronisation
-        first_known_ofdm_start_index = peaks[1] + len(CHIRP) // 2 - offset
+        first_known_ofdm_start_index = peaks[1] - offset
         first_known_ofdm_end_index = (
             first_known_ofdm_start_index + len(PREAMBLE) - len(CHIRP)
         )
 
         # Get ending known OFDM blocks from chirp synchronisation
-        last_known_ofdm_end_index = peaks[-2] - len(CHIRP) // 2 - offset
+        last_known_ofdm_end_index = peaks[-2] - len(CHIRP) - offset
         last_known_ofdm_start_index = (
             last_known_ofdm_end_index - len(ENDAMBLE) + len(CHIRP)
         )
@@ -167,9 +167,10 @@ class Transmission:
         # A negative error means we've received too few samples
         error = last_known_ofdm_start_index - last_known_ofdm_start_index_est
         error_per_sample = error / (peaks[-2] - peaks[1])
-        
-        self.drift_per_sample = -error_per_sample
-        # self.drift_offset = int(np.rint( self.drift_per_sample * len(CHIRP) // 2 ))
+        error_per_sample *= 1.1
+        print(error_per_sample)
+
+        self.drift_per_sample = error_per_sample
 
         print(
             f"""
@@ -214,10 +215,6 @@ class Transmission:
 
             plt.show()
 
-        self.Rs = self._identify_Rs(
-            first_known_ofdm_end_index, num_symbols
-        )
-
         # Pull out the known OFDM blocks from the received signal
         self.known_symbols_start = self.received_signal[
             first_known_ofdm_start_index + L : first_known_ofdm_end_index
@@ -229,12 +226,16 @@ class Transmission:
             last_known_ofdm_start_index_est + L : last_known_ofdm_end_index_est
         ]
 
+        # Pull out received OFDM block
+        self.Rs = self._identify_Rs(
+            first_known_ofdm_end_index, num_symbols
+        )
+    
     def _find_chirp_peaks(self):
         # window = lambda x: x * np.hanning(len(x))
         conv = sig.convolve(
             self.received_signal,
             np.flip(CHIRP),
-            mode="same",
         )
         peaks = sig.find_peaks(conv, height=0.5 * np.abs(conv).max(), distance=FS // 2)[
             0
@@ -243,13 +244,15 @@ class Transmission:
 
     def _identify_Rs(self, first_known_ofdm_end_index, num_symbols):
         Rs = []
-        # starting_drift_offset = self.drift_offset + L + 4 * N
+        # 0 drift at the end of the chirp
+        drift_at_known_ofdm_end = int( np.round( self.drift_per_sample * (L + len(self.known_symbols_start)) ) )
         drift_per_symbol = self.drift_per_sample * (L + N)
 
         for i in range(num_symbols):
             start = (
                 first_known_ofdm_end_index
                 + L
+                + drift_at_known_ofdm_end
                 + int(np.round((L + N + drift_per_symbol) * i))
             )
             end = start + N
@@ -275,12 +278,15 @@ class Transmission:
             [0],
             np.arange(1, N // 2) / N,
             [0],
-            np.flip(np.arange(1, N // 2)) / N
+            np.arange(1-N//2, 0) / N
         ])
 
+        # temp = np.arange(0, N)/N
+        # temp[N//2] = 0
+
         for i, R_block in enumerate(R):
-            block_start_drift = self.drift_per_sample * N * i
-            drift_correction = np.exp(2j * np.pi * block_start_drift * temp)
+            drift_at_block_start = self.drift_per_sample * (L + N * i)
+            drift_correction = np.exp(2j * np.pi * drift_at_block_start * temp)
             R_block *= drift_correction
 
         H_est = np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
@@ -438,6 +444,11 @@ class Transmission:
 
         plt.show()
 
+    def absolute_violation(self):
+        # Change the drift per sample by some factor
+        # Optimise drift factor by looking at the decoded correctly probability over the known symbols
+
+
 
 n = 25
 np.random.seed(0)
@@ -457,6 +468,10 @@ transmission.estimate_Xhats()
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
 # transmission.mse_decode()
+
+print("Block no. -- Frac. decoded correctly")
+for i in range(n):
+    print(i, "          ", transmission._check_decoding(i=i))
 
 # Correct synchronisation for drift
 # print("2nd pass:")
