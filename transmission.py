@@ -205,10 +205,11 @@ class Transmission:
     def _complex_average(self, known_symbols):
         r = known_symbols.reshape((-1, N))
         R = np.fft.fft(r)
-        magnitudes = np.mean(np.abs(R / KNOWN_SYMBOL_BIG_X), axis=0)
-        angles = np.mean(np.angle(R / KNOWN_SYMBOL_BIG_X), axis=0)
-        # np.mean(R / X, axis=0)
-        return magnitudes * np.exp(1j * angles)
+        # magnitudes = np.mean(np.abs(R / KNOWN_SYMBOL_BIG_X), axis=0)
+        # angles = np.mean(np.angle(R / KNOWN_SYMBOL_BIG_X), axis=0)
+        # return magnitudes * np.exp(1j * angles)
+
+        return np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
 
     def estimate_Xhats(self):
         self.Xhats = []
@@ -326,9 +327,9 @@ source = np.random.choice(VALUES, N_BINS * n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
-transmission.record_signal(afplay=True)
-transmission.save_signals()
-# transmission.load_signals()
+# transmission.record_signal(afplay=True)
+# transmission.save_signals()
+transmission.load_signals()
 
 # Initial synchronisation
 transmission.synchronise(plot=True)
