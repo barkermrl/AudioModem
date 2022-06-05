@@ -29,7 +29,7 @@ L = 512
 N = 4096
 
 NUM_CARRIERS = (N - 2) // 2
-KNOWN_SYMBOL = np.load("known_ofdm_symbol.npy")
+KNOWN_SYMBOL = np.fft.fft(np.load("known_ofdm_symbol.npy")).real
 GUARD = KNOWN_SYMBOL[-L:]
 
 
@@ -297,7 +297,7 @@ class Transmission:
 
     def mse_decode(self, i=-1):
         Xhat = self.Xhats[i]
-        X = self.source_chunks[i][FREQ_MIN:FREQ_MAX]
+        X = self.source_chunks[i]
         breakpoint()
 
 
