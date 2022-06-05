@@ -167,6 +167,9 @@ class Transmission:
         # A negative error means we've received too few samples
         error = last_known_ofdm_start_index - last_known_ofdm_start_index_est
         error_per_sample = error / (peaks[-2] - peaks[1])
+        
+        self.drift_per_sample = -error_per_sample
+        # self.drift_offset = int(np.rint( self.drift_per_sample * len(CHIRP) // 2 ))
 
         print(
             f"""
@@ -212,7 +215,7 @@ class Transmission:
             plt.show()
 
         self.Rs = self._identify_Rs(
-            first_known_ofdm_end_index, num_symbols, error_per_sample
+            first_known_ofdm_end_index, num_symbols
         )
 
         # Pull out the known OFDM blocks from the received signal
@@ -238,15 +241,16 @@ class Transmission:
         ]
         return peaks
 
-    def _identify_Rs(self, first_known_ofdm_end_index, num_symbols, error_per_sample):
+    def _identify_Rs(self, first_known_ofdm_end_index, num_symbols):
         Rs = []
-        error_per_symbol = error_per_sample * (L + N)
+        # starting_drift_offset = self.drift_offset + L + 4 * N
+        drift_per_symbol = self.drift_per_sample * (L + N)
 
         for i in range(num_symbols):
             start = (
                 first_known_ofdm_end_index
                 + L
-                + int(np.round((L + N + error_per_symbol) * i))
+                + int(np.round((L + N + drift_per_symbol) * i))
             )
             end = start + N
             r = self.received_signal[start:end]
@@ -267,8 +271,19 @@ class Transmission:
         # angles = np.mean(np.angle(R / KNOWN_SYMBOL_BIG_X), axis=0)
         # return magnitudes * np.exp(1j * angles)
 
-        H_est_matrix = R / KNOWN_SYMBOL_BIG_X
-        H_est = np.mean(H_est_matrix, axis=0)
+        temp = np.concatenate([
+            [0],
+            np.arange(1, N // 2) / N,
+            [0],
+            np.flip(np.arange(1, N // 2)) / N
+        ])
+
+        for i, R_block in enumerate(R):
+            block_start_drift = self.drift_per_sample * N * i
+            drift_correction = np.exp(2j * np.pi * block_start_drift * temp)
+            R_block *= drift_correction
+
+        H_est = np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
 
         if plot_each:
             freqs = np.linspace(0, FS, N)
@@ -373,7 +388,6 @@ class Transmission:
         assert len(Xhat) == len(X)
 
         for i in range(len(Xhat)):
-            print(Xhat[i], X[i])
             if get_sign_tuple(Xhat[i]) == get_sign_tuple(X[i]):
                 num_correct += 1
 
@@ -432,9 +446,9 @@ source = np.random.choice(VALUES, N_BINS * n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
-transmission.record_signal(afplay=False)
-transmission.save_signals()
-# transmission.load_signals()
+# transmission.record_signal()
+# transmission.save_signals()
+transmission.load_signals()
 
 # Initial synchronisation
 transmission.synchronise(plot=True)
