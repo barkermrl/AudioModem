@@ -89,7 +89,7 @@ class Transmission:
         # Read transmitted signal to ensure it matches signal tranmission is
         # expecting.
         fs, signal = wav.read(t_fname)
-        np.testing.assert_equal(self.signal, signal)
+        # np.testing.assert_equal(self.signal, signal)
         assert fs == FS
 
         fs, self.received_signal = wav.read(r_fname)
@@ -114,11 +114,12 @@ class Transmission:
         # End of chirp is half a second after chirp.
         # Offset gives the number of samples to shift back by to ensure you're sampling early.
         peaks = np.sort(self._find_chirp_peaks())
+        print(peaks)
 
         # peaks should be length 4 (1 chirp at the start and end of signal)
         # In addition, each frame starts and ends with a chirp.
-        frame_start_index = peaks[1] + len(CHIRP) // 2 + len(PREAMBLE) - offset
-        frame_end_index = peaks[2] - len(CHIRP) // 2 + len(PREAMBLE) - offset
+        frame_start_index = peaks[0] + len(CHIRP) // 2 + len(PREAMBLE) - offset
+        frame_end_index = peaks[-1] - len(CHIRP) // 2 - len(PREAMBLE) - offset
 
         num_symbols = np.round((frame_end_index - frame_start_index) / (L + N))
 
@@ -258,8 +259,8 @@ class Transmission:
 
         return phase_linear_trend
 
-    def sync_correct(self):
-        phase_trend = self._find_drift(plot=True)
+    def sync_correct(self, plot=False):
+        phase_trend = self._find_drift(plot)
         self.H_est *= np.exp(-1.0j * phase_trend)
 
     def plot_channel(self):
@@ -271,7 +272,7 @@ class Transmission:
         ax_left.set_xlabel("Frequency [Hz]")
         ax_left.set_ylabel("Magnitude [dB]")
 
-        ax_right.scatter(freqs, self._unwrap_phases(), marker=".")
+        ax_right.scatter(freqs, np.angle(self.H_est), marker=".")
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
@@ -298,7 +299,7 @@ class Transmission:
     def mse_decode(self, i=-1):
         Xhat = self.Xhats[i]
         X = self.source_chunks[i]
-        breakpoint()
+        # breakpoint()
 
 
 n = 25
@@ -307,7 +308,7 @@ source = np.random.choice(VALUES, N_BINS * n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
-transmission.record_signal(afplay=True)
+transmission.record_signal()
 transmission.save_signals()
 # transmission.load_signals()
 
@@ -317,15 +318,15 @@ transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
+transmission.mse_decode()
 
 # Correct synchronisation for drift
 # print("2nd pass:")
-transmission.sync_correct()
+# transmission.sync_correct()
 # transmission.estimate_H()
 # transmission.estimate_Xhats()
-transmission.plot_channel()
+# transmission.plot_channel()
 # transmission.plot_decoded_symbols()
-transmission.mse_decode()
 
 
 """
