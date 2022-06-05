@@ -29,17 +29,18 @@ L = 512
 N = 4096
 
 NUM_CARRIERS = (N - 2) // 2
-KNOWN_SYMBOL = np.fft.fft(np.load("known_ofdm_symbol.npy")).real
-GUARD = KNOWN_SYMBOL[-L:]
+KNOWN_SYMBOL_BIG_X = np.load("known_ofdm_symbol.npy") # complex constellation values
+KNOWN_SYMBOL_SMALL_X = np.fft.ifft(KNOWN_SYMBOL_BIG_X).real
+GUARD = KNOWN_SYMBOL_SMALL_X[-L:]
 
 
 t = np.linspace(0, 1, FS)
 CHIRP = sig.chirp(t, 1e3, 1, 10e3, method="linear")
 PREAMBLE = np.concatenate(
-    [CHIRP, GUARD, KNOWN_SYMBOL, KNOWN_SYMBOL, KNOWN_SYMBOL, KNOWN_SYMBOL]
+    [CHIRP, GUARD, KNOWN_SYMBOL_SMALL_X, KNOWN_SYMBOL_SMALL_X, KNOWN_SYMBOL_SMALL_X, KNOWN_SYMBOL_SMALL_X]
 )
 ENDAMBLE = np.concatenate(
-    [GUARD, KNOWN_SYMBOL, KNOWN_SYMBOL, KNOWN_SYMBOL, KNOWN_SYMBOL, CHIRP]
+    [GUARD, KNOWN_SYMBOL_SMALL_X, KNOWN_SYMBOL_SMALL_X, KNOWN_SYMBOL_SMALL_X, KNOWN_SYMBOL_SMALL_X, CHIRP]
 )
 
 START = np.concatenate([np.zeros(FS), CHIRP])
@@ -65,11 +66,12 @@ class Transmission:
         for source_chunk in self.source_chunks:
             data_carriers = np.concatenate(
                 (
-                    np.random.choice(VALUES, NUM_CARRIERS - FREQ_MIN),
+                    np.random.choice(VALUES, FREQ_MIN-1),
                     source_chunk,
                     np.random.choice(VALUES, NUM_CARRIERS - FREQ_MAX),
                 )
             )
+            assert len(data_carriers) = NUM_CARRIERS
             subcarrier_data = np.concatenate(
                 ([0], data_carriers, [0], np.conjugate(np.flip(data_carriers)))
             )
@@ -118,10 +120,10 @@ class Transmission:
 
         # peaks should be length 4 (1 chirp at the start and end of signal)
         # In addition, each frame starts and ends with a chirp.
-        frame_start_index = peaks[0] + len(CHIRP) // 2 + len(PREAMBLE) - offset
-        frame_end_index = peaks[-1] - len(CHIRP) // 2 - len(PREAMBLE) - offset
+        frame_start_index = peaks[1] - len(CHIRP) // 2 + len(PREAMBLE) - offset
+        frame_end_index = peaks[-2] + len(CHIRP) // 2 - len(ENDAMBLE) - offset
 
-        num_symbols = np.round((frame_end_index - frame_start_index) / (L + N))
+        num_symbols = np.int(np.round((frame_end_index - frame_start_index) / (L + N)))
 
         sampling_error = frame_end_index - frame_start_index - num_symbols * (L + N)
 
@@ -170,10 +172,8 @@ class Transmission:
         Rs = []
         error_per_symbols = sampling_error / num_symbols
 
-        for i in range(n):
-            start = int(
-                frame_start_index + L + np.rint((L + N + error_per_symbols) * i)
-            )
+        for i in range(num_symbols):
+            start = frame_start_index + L + int(np.round((L + N + error_per_symbols) * i))
             end = start + N
             r = self.received_signal[start:end]
             R = np.fft.fft(r)
@@ -182,13 +182,15 @@ class Transmission:
 
     def estimate_H(self):
         # Returns a channel estimate from the known and received OFDM symbols
-        self.H_est = self._complex_average(self.known_symbols_start)
-        self.H_est_end = self._complex_average(self.known_symbols_end)
+        H_est_start = self._complex_average(self.known_symbols_start)
+        H_est_end = self._complex_average(self.known_symbols_end)
+        self.H_est = (H_est_start + H_est_end)/2
 
     def _complex_average(self, known_symbols):
-        R = known_symbols.reshape((-1, N))
-        magnitudes = np.mean(np.abs(R / KNOWN_SYMBOL), axis=0)
-        angles = np.mean(np.angle(R / KNOWN_SYMBOL), axis=0)
+        r = known_symbols.reshape((-1, N))
+        R = np.fft.fft(r)
+        magnitudes = np.mean(np.abs(R / KNOWN_SYMBOL_BIG_X), axis=0)
+        angles = np.mean(np.angle(R / KNOWN_SYMBOL_BIG_X), axis=0)
         # np.mean(R / X, axis=0)
         return magnitudes * np.exp(1j * angles)
 
@@ -299,7 +301,7 @@ class Transmission:
     def mse_decode(self, i=-1):
         Xhat = self.Xhats[i]
         X = self.source_chunks[i]
-        # breakpoint()
+        breakpoint()
 
 
 n = 25
