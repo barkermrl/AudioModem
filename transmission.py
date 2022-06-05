@@ -113,9 +113,12 @@ class Transmission:
     def synchronise(self, offset=5, plot=False):
         # End of chirp is half a second after chirp.
         # Offset gives the number of samples to shift back by to ensure you're sampling early.
-        peaks = self._find_chirp_peaks()
-        frame_start_index = peaks.min() + len(CHIRP) // 2 + len(PREAMBLE) - offset
-        frame_end_index = peaks.max() - len(CHIRP) // 2 + len(PREAMBLE) - offset
+        peaks = np.sort(self._find_chirp_peaks())
+
+        # peaks should be length 4 (1 chirp at the start and end of signal)
+        # In addition, each frame starts and ends with a chirp.
+        frame_start_index = peaks[1] + len(CHIRP) // 2 + len(PREAMBLE) - offset
+        frame_end_index = peaks[2] - len(CHIRP) // 2 + len(PREAMBLE) - offset
 
         num_symbols = np.round((frame_end_index - frame_start_index) / (L + N))
 
@@ -128,6 +131,13 @@ class Transmission:
         )
 
         self.Rs = self._identify_Rs(frame_start_index, num_symbols, sampling_error)
+
+        self.known_symbols_start = self.received_signal[
+            frame_start_index - 4 * N : frame_start_index
+        ]
+        self.known_symbols_end = self.received_signal[
+            frame_end_index + L : frame_end_index + L + 4 * N
+        ]
 
         if plot:
             plt.plot(self.received_signal)
@@ -171,12 +181,15 @@ class Transmission:
 
     def estimate_H(self):
         # Returns a channel estimate from the known and received OFDM symbols
-        R = np.vstack(self.Rs[:4])
-        X = np.vstack(self.Xs[:4])
-        magnitudes = np.mean(np.abs(R / X), axis=0)
-        angles = np.mean(np.angle(R / X), axis=0)
-        # self.H_est = np.mean(R / X, axis=0)
-        self.H_est = magnitudes * np.exp(1j * angles)
+        self.H_est = self._complex_average(self.known_symbols_start)
+        self.H_est_end = self._complex_average(self.known_symbols_end)
+
+    def _complex_average(self, known_symbols):
+        R = known_symbols.reshape((-1, N))
+        magnitudes = np.mean(np.abs(R / KNOWN_SYMBOL), axis=0)
+        angles = np.mean(np.angle(R / KNOWN_SYMBOL), axis=0)
+        # np.mean(R / X, axis=0)
+        return magnitudes * np.exp(1j * angles)
 
     def estimate_Xhats(self):
         self.Xhats = []
