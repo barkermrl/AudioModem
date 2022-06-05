@@ -134,7 +134,7 @@ class Transmission:
         # In addition, each frame starts and ends with a chirp.
 
         peaks = np.sort(self._find_chirp_peaks())
-        assert len(peaks) == 4
+        assert len(peaks) == 4, f"Found {len(peaks)} peaks, expected 4"
 
         # Get starting known OFDM blocks from chirp synchronisation
         first_known_ofdm_start_index = peaks[1] + len(CHIRP) // 2 - offset
@@ -233,7 +233,7 @@ class Transmission:
             np.flip(CHIRP),
             mode="same",
         )
-        peaks = sig.find_peaks(conv, height=0.5 * np.abs(conv).max(), distance=FS - 1)[
+        peaks = sig.find_peaks(conv, height=0.5 * np.abs(conv).max(), distance=FS // 2)[
             0
         ]
         return peaks
@@ -432,7 +432,7 @@ source = np.random.choice(VALUES, N_BINS * n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
-transmission.record_signal(afplay=True)
+transmission.record_signal(afplay=False)
 transmission.save_signals()
 # transmission.load_signals()
 
