@@ -1,5 +1,4 @@
 # Import libraries
-from graphql import NoSchemaIntrospectionCustomRule
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
@@ -483,7 +482,7 @@ np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
 
-transmission.record_signal(afplay=True)
+transmission.record_signal(afplay=False)
 transmission.save_signals()
 # transmission.load_signals()
 
