@@ -69,7 +69,7 @@ class createFile:
 
 
 def save_bits():
-    f = createFile("group5.ppm")
+    f = createFile("group5.tiff")
     pf = f.padded
 
     a = bitarray(endian="little")

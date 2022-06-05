@@ -1,4 +1,5 @@
 # Import libraries
+from graphql import NoSchemaIntrospectionCustomRule
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
@@ -27,6 +28,8 @@ VALUES = list(CONSTELLATION_MAP.values())
 FS = 48000
 L = 512
 N = 4096
+FRAME_LENGTH = 128
+NUM_FRAME_VALUES = FRAME_LENGTH * (L + N)
 
 NUM_CARRIERS = (N - 2) // 2
 KNOWN_SYMBOL_BIG_X = np.load("known_ofdm_symbol.npy")  # complex constellation values
@@ -69,10 +72,9 @@ class Transmission:
 
         # Create signal
         symbols = self._create_symbols()
-        frame = np.concatenate([PREAMBLE, symbols, ENDAMBLE])
+        frames = self._create_frames(symbols)
 
-        # TODO: Add file size in header
-        self.signal = np.concatenate((START, frame, END))
+        self.signal = np.concatenate((START, frames, END))
 
     def _create_symbols(self):
         symbols = []
@@ -97,6 +99,19 @@ class Transmission:
 
             symbols.append(OFDM_symbol)
         return np.concatenate(symbols)
+
+    def _create_frames(self, symbols):
+        num_whole_frames = len(symbols) // NUM_FRAME_VALUES
+
+        frames = []
+        for i in range(num_whole_frames):
+            frame = symbols[i * NUM_FRAME_VALUES : (i + 1) * NUM_FRAME_VALUES]
+            frames.append(np.concatenate([PREAMBLE, frame, ENDAMBLE]))
+
+        final_frame = symbols[num_whole_frames * NUM_FRAME_VALUES :]
+        frames.append(np.concatenate([PREAMBLE, final_frame, ENDAMBLE]))
+
+        return np.concatenate(frames)
 
     def save_signals(self, t_fname="files/signal.wav", r_fname="files/received.wav"):
         wav.write(r_fname, FS, self.received_signal)
@@ -227,10 +242,8 @@ class Transmission:
         ]
 
         # Pull out received OFDM block
-        self.Rs = self._identify_Rs(
-            first_known_ofdm_end_index, num_symbols
-        )
-    
+        self.Rs = self._identify_Rs(first_known_ofdm_end_index, num_symbols)
+
     def _find_chirp_peaks(self):
         # window = lambda x: x * np.hanning(len(x))
         conv = sig.convolve(
@@ -245,7 +258,9 @@ class Transmission:
     def _identify_Rs(self, first_known_ofdm_end_index, num_symbols):
         Rs = []
         # 0 drift at the end of the chirp
-        drift_at_known_ofdm_end = int( np.round( self.drift_per_sample * (L + len(self.known_symbols_start)) ) )
+        drift_at_known_ofdm_end = int(
+            np.round(self.drift_per_sample * (L + len(self.known_symbols_start)))
+        )
         drift_per_symbol = self.drift_per_sample * (L + N)
 
         for i in range(num_symbols):
@@ -274,12 +289,9 @@ class Transmission:
         # angles = np.mean(np.angle(R / KNOWN_SYMBOL_BIG_X), axis=0)
         # return magnitudes * np.exp(1j * angles)
 
-        temp = np.concatenate([
-            [0],
-            np.arange(1, N // 2) / N,
-            [0],
-            np.arange(1-N//2, 0) / N
-        ])
+        temp = np.concatenate(
+            [[0], np.arange(1, N // 2) / N, [0], np.arange(1 - N // 2, 0) / N]
+        )
 
         # temp = np.arange(0, N)/N
         # temp[N//2] = 0
@@ -346,12 +358,18 @@ class Transmission:
 
         # Correct for linear trend by adjusting so that corrected_phases[-1] = -corrected_phases[1] for conjugacy
         # phase_linear_trend = np.linspace(0, phases[-1], phases.shape[0])
-        grad = (phases[1]+phases[-1])/self.N
+        grad = (phases[1] + phases[-1]) / self.N
         phase_linear_trend = grad * np.arange(0, self.N)
         corrected_phases = phases - phase_linear_trend
 
-        assert np.allclose(corrected_phases[1:self.N//2], -np.flip(corrected_phases[1+self.N//2:])) == True     # Assert conjugacy
-        
+        assert (
+            np.allclose(
+                corrected_phases[1 : self.N // 2],
+                -np.flip(corrected_phases[1 + self.N // 2 :]),
+            )
+            == True
+        )  # Assert conjugacy
+
         if plot:
             freqs = np.arange(self.H_est.shape[0])
 
@@ -363,11 +381,7 @@ class Transmission:
                 label="Wrapped phases",
             )
             plt.scatter(
-                freqs,
-                phases,
-                color="green",
-                marker=".",
-                label="Unwrapped phases"
+                freqs, phases, color="green", marker=".", label="Unwrapped phases"
             )
             plt.scatter(
                 freqs,
@@ -455,20 +469,23 @@ class Transmission:
     def absolute_violation(self):
         # Change the drift per sample by some factor
         # Optimise drift factor by looking at the decoded correctly probability over the known symbols
+        pass
 
 
+source = np.load("frenzy_constellation_values.npy")
 
-n = 25
+num_extra_values = len(source) % N_BINS
+
 np.random.seed(0)
-source = np.random.choice(VALUES, N_BINS * n)
+source = np.append(source, np.random.choice(VALUES, num_extra_values))
 
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
 
-# transmission.record_signal()
-# transmission.save_signals()
-transmission.load_signals()
+transmission.record_signal(afplay=True)
+transmission.save_signals()
+# transmission.load_signals()
 
 # Initial synchronisation
 transmission.synchronise()
@@ -477,10 +494,6 @@ transmission.estimate_Xhats()
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
 # transmission.mse_decode()
-
-print("Block no. -- Frac. decoded correctly")
-for i in range(n):
-    print(i, "          ", transmission._check_decoding(i=i))
 
 # Correct synchronisation for drift
 # print("2nd pass:")
