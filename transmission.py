@@ -142,7 +142,7 @@ class Transmission:
         
         # Get ending known OFDM blocks from chirp synchronisation
         last_known_ofdm_end_index = peaks[-2] - len(CHIRP) // 2 - offset
-        last_known_ofdm_start_index = last_known_ofdm_end_index - len(ENDAMBLE)
+        last_known_ofdm_start_index = last_known_ofdm_end_index - len(ENDAMBLE) + len(CHIRP)
 
         # Find the number of symbols from the samples between the known OFDM start and end indices
         num_symbols = int(np.round((last_known_ofdm_start_index - first_known_ofdm_end_index) / (L + N)))
@@ -151,62 +151,56 @@ class Transmission:
         last_known_ofdm_start_index_est = first_known_ofdm_end_index + num_symbols * (L + N)
         last_known_ofdm_end_index_est = last_known_ofdm_start_index_est + len(ENDAMBLE) - len(CHIRP)
 
-        # Find the error in the number of samples from the cross-correlation between the estimated and actual
-        # locations of the last known OFDM block
-        first_known_ofdm_block = self.received_signal[first_known_ofdm_start_index:first_known_ofdm_end_index]
-        last_known_ofdm_block = self.received_signal[last_known_ofdm_start_index:last_known_ofdm_end_index]
-        last_known_ofdm_block_est = self.received_signal[last_known_ofdm_start_index_est:last_known_ofdm_end_index_est]
-
-        fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
-        
-        ax0.plot(first_known_ofdm_block)
-        ax0.set_title("First known OFDM block")
-
-        ax1.plot(last_known_ofdm_block_est)
-        ax1.set_title("Last known OFDM block: First+length")
-        
-        ax2.plot(last_known_ofdm_block)
-        ax2.set_title("Last known OFDM block: Chirp")
-        
-        plt.show()
-
-        xcor = sig.correlate(
-            first_known_ofdm_block,
-            last_known_ofdm_block_est,
-            mode = "same"
-        )
-        error_xcor = -xcor.argmax() - (len(PREAMBLE) - len(CHIRP)) / 2
-
-        # Find the error in the number of samples directly from the synchronisation peak indicies
-        error = last_known_ofdm_start_index - first_known_ofdm_end_index - num_symbols * (L + N)     # -ve means we've received too few samples
-        print(f"Correlation error: {error_xcor}, Simple error: {error}")
-
+        # Find the sampling error from the difference in the location of the last known OFDM block
+        # A negative error means we've received too few samples
+        error = last_known_ofdm_start_index - last_known_ofdm_start_index_est
         error_per_sample = error / (peaks[-2] - peaks[1])
-        error_per_symbol = error_per_sample * (L + N)
 
         print(f"""
             Peaks: {peaks}
-            Frame start: {data_start_index}
-            Frame end: {data_end_index}
             Num symbols: {num_symbols}
-            Sampling error: {error}
+            First OFDM block: {first_known_ofdm_start_index} to {first_known_ofdm_end_index}
+            Last OFDM block (length): {last_known_ofdm_start_index_est} to {last_known_ofdm_end_index_est}
+            Last OFDM block (chirp): {last_known_ofdm_start_index} to {last_known_ofdm_end_index}            
+            Sampling error (-ve means samples missed): {error}
         """)
-
-        self.Rs = self._identify_Rs(data_start_index, num_symbols, error_per_sample)
-
-        self.known_symbols_start = self.received_signal[
-            data_start_index - 4 * N : data_start_index
-        ]
-        self.known_symbols_end = self.received_signal[
-            data_end_index + L : data_end_index + L + 4 * N
-        ]
 
         if plot:
             plt.plot(self.received_signal)
+
             plt.axvline(
-                data_start_index, color="r", linestyle=":", label="Frame start/end"
+                first_known_ofdm_start_index,
+                color="r",
+                linestyle=":",
+                label="First OFDM block"
             )
-            plt.axvline(data_end_index, color="r", linestyle=":")
+            plt.axvline(
+                first_known_ofdm_end_index,
+                color="r",
+                linestyle=":"
+            )
+            plt.axvline(
+                last_known_ofdm_start_index,
+                color="g",
+                linestyle=":",
+                label="Last OFDM block: chirp"
+            )
+            plt.axvline(
+                last_known_ofdm_end_index,
+                color="g",
+                linestyle=":"
+            )
+            plt.axvline(
+                last_known_ofdm_start_index_est,
+                color="y",
+                linestyle=":",
+                label="Last OFDM block: length"
+            )
+            plt.axvline(
+                last_known_ofdm_end_index_est,
+                color="y",
+                linestyle=":"
+            )
 
             plt.title("Received signal")
             plt.xlabel("Sample index")
@@ -214,6 +208,14 @@ class Transmission:
             plt.legend(loc="upper right")
 
             plt.show()
+
+        self.Rs = self._identify_Rs(first_known_ofdm_end_index, num_symbols, error_per_sample)
+
+        # Pull out the known OFDM blocks from the received signal
+        self.known_symbols_start = self.received_signal[first_known_ofdm_start_index + L : first_known_ofdm_end_index]
+        self.known_symbols_end = self.received_signal[last_known_ofdm_start_index + L : last_known_ofdm_end_index]
+        self.known_symbols_end_est = self.received_signal[last_known_ofdm_start_index_est + L : last_known_ofdm_end_index_est]
+
 
     def _find_chirp_peaks(self):
         # window = lambda x: x * np.hanning(len(x))
@@ -225,12 +227,13 @@ class Transmission:
         peaks = sig.find_peaks(conv, height=0.5*np.abs(conv).max(), distance=FS - 1)[0]
         return peaks
 
-    def _identify_Rs(self, data_start_index, num_symbols, error_per_symbol):
+    def _identify_Rs(self, first_known_ofdm_end_index, num_symbols, error_per_sample):
         Rs = []
+        error_per_symbol = error_per_sample * (L + N)
 
         for i in range(num_symbols):
             start = (
-                data_start_index + L + int(np.round((L + N + error_per_symbol) * i))
+                first_known_ofdm_end_index + L + int(np.round((L + N + error_per_symbol) * i))
             )
             end = start + N
             r = self.received_signal[start:end]
@@ -240,8 +243,8 @@ class Transmission:
 
     def estimate_H(self):
         # Returns a channel estimate from the known and received OFDM symbols
-        H_est_start = self._complex_average(self.known_symbols_start, plot_each=True)
-        H_est_end = self._complex_average(self.known_symbols_end, plot_each=True)
+        H_est_start = self._complex_average(self.known_symbols_start)
+        H_est_end = self._complex_average(self.known_symbols_end)
         self.H_est = H_est_start
 
     def _complex_average(self, known_symbols, plot_each=False):
@@ -357,6 +360,7 @@ class Transmission:
         assert len(Xhat) == len(X)
         
         for i in range(len(Xhat)):
+            print(Xhat[i], X[i])
             if get_sign_tuple(Xhat[i]) == get_sign_tuple(X[i]):
                 num_correct += 1
         
@@ -382,12 +386,12 @@ class Transmission:
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
-        # print(np.angle(self.H_est))
+        plt.title("Estimated Channel")
         plt.show()
 
     def plot_decoded_symbols(self, i=-1):
+        # Find the proportion of decoded values in the correct quadrant
         proportion_correct = self._check_decoding(i=i)
-        # print(f"Proportion correct = {proportion_correct}")
 
         # Plots decoded symbols coloured by frequency bin
         X = self.Xhats[i]
@@ -418,7 +422,7 @@ transmission = Transmission(source)
 transmission.load_signals()
 
 # Initial synchronisation
-transmission.synchronise(offset=0, plot=True)
+transmission.synchronise(plot=True)
 transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
