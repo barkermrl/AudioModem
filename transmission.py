@@ -31,6 +31,7 @@ N = 4096
 NUM_CARRIERS = (N - 2) // 2
 KNOWN_SYMBOL_BIG_X = np.load("known_ofdm_symbol.npy")  # complex constellation values
 KNOWN_SYMBOL_SMALL_X = np.fft.ifft(KNOWN_SYMBOL_BIG_X).real
+KNOWN_SYMBOL_SMALL_X /= np.max(np.abs(KNOWN_SYMBOL_SMALL_X))
 GUARD = KNOWN_SYMBOL_SMALL_X[-L:]
 
 
@@ -126,7 +127,7 @@ class Transmission:
         ).flatten()
         print("Recording finished")
 
-    def synchronise(self, offset=5, plot=False):
+    def synchronise(self, offset=0, plot=False):
         # End of chirp is half a second after chirp.
         # Offset gives the number of samples to shift back by to ensure you're sampling early.
         # Peaks should be length 4 (1 chirp at the start and end of signal)
@@ -135,36 +136,77 @@ class Transmission:
         peaks = np.sort(self._find_chirp_peaks())
         assert len(peaks) == 4
         
-        frame_start_index = peaks[1] - len(CHIRP) // 2 + len(PREAMBLE) - offset
-        frame_end_index = peaks[-2] + len(CHIRP) // 2 - len(ENDAMBLE) - offset
+        # Get starting known OFDM blocks from chirp synchronisation
+        first_known_ofdm_start_index = peaks[1] + len(CHIRP) // 2 - offset
+        first_known_ofdm_end_index = first_known_ofdm_start_index + len(PREAMBLE) - len(CHIRP)
+        
+        # Get ending known OFDM blocks from chirp synchronisation
+        last_known_ofdm_end_index = peaks[-2] - len(CHIRP) // 2 - offset
+        last_known_ofdm_start_index = last_known_ofdm_end_index - len(ENDAMBLE)
 
-        num_symbols = int(np.round((frame_end_index - frame_start_index) / (L + N)))
+        # Find the number of symbols from the samples between the known OFDM start and end indices
+        num_symbols = int(np.round((last_known_ofdm_start_index - first_known_ofdm_end_index) / (L + N)))
 
-        sampling_error = frame_end_index - frame_start_index - num_symbols * (L + N)
+        # Estimate where the ending known OFDM blocks are from the starting blocks and number of symbols
+        last_known_ofdm_start_index_est = first_known_ofdm_end_index + num_symbols * (L + N)
+        last_known_ofdm_end_index_est = last_known_ofdm_start_index_est + len(ENDAMBLE) - len(CHIRP)
+
+        # Find the error in the number of samples from the cross-correlation between the estimated and actual
+        # locations of the last known OFDM block
+        first_known_ofdm_block = self.received_signal[first_known_ofdm_start_index:first_known_ofdm_end_index]
+        last_known_ofdm_block = self.received_signal[last_known_ofdm_start_index:last_known_ofdm_end_index]
+        last_known_ofdm_block_est = self.received_signal[last_known_ofdm_start_index_est:last_known_ofdm_end_index_est]
+
+        fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
+        
+        ax0.plot(first_known_ofdm_block)
+        ax0.set_title("First known OFDM block")
+
+        ax1.plot(last_known_ofdm_block_est)
+        ax1.set_title("Last known OFDM block: First+length")
+        
+        ax2.plot(last_known_ofdm_block)
+        ax2.set_title("Last known OFDM block: Chirp")
+        
+        plt.show()
+
+        xcor = sig.correlate(
+            first_known_ofdm_block,
+            last_known_ofdm_block_est,
+            mode = "same"
+        )
+        error_xcor = -xcor.argmax() - (len(PREAMBLE) - len(CHIRP)) / 2
+
+        # Find the error in the number of samples directly from the synchronisation peak indicies
+        error = last_known_ofdm_start_index - first_known_ofdm_end_index - num_symbols * (L + N)     # -ve means we've received too few samples
+        print(f"Correlation error: {error_xcor}, Simple error: {error}")
+
+        error_per_sample = error / (peaks[-2] - peaks[1])
+        error_per_symbol = error_per_sample * (L + N)
 
         print(f"""
             Peaks: {peaks}
-            Frame start: {frame_start_index}
-            Frame end: {frame_end_index}
+            Frame start: {data_start_index}
+            Frame end: {data_end_index}
             Num symbols: {num_symbols}
-            Sampling error: {sampling_error}
+            Sampling error: {error}
         """)
 
-        self.Rs = self._identify_Rs(frame_start_index, num_symbols, sampling_error)
+        self.Rs = self._identify_Rs(data_start_index, num_symbols, error_per_sample)
 
         self.known_symbols_start = self.received_signal[
-            frame_start_index - 4 * N : frame_start_index
+            data_start_index - 4 * N : data_start_index
         ]
         self.known_symbols_end = self.received_signal[
-            frame_end_index + L : frame_end_index + L + 4 * N
+            data_end_index + L : data_end_index + L + 4 * N
         ]
 
         if plot:
             plt.plot(self.received_signal)
             plt.axvline(
-                frame_start_index, color="r", linestyle=":", label="Frame start/end"
+                data_start_index, color="r", linestyle=":", label="Frame start/end"
             )
-            plt.axvline(frame_end_index, color="r", linestyle=":")
+            plt.axvline(data_end_index, color="r", linestyle=":")
 
             plt.title("Received signal")
             plt.xlabel("Sample index")
@@ -180,18 +222,15 @@ class Transmission:
             np.flip(CHIRP),
             mode="same",
         )
-        peaks = sig.find_peaks(conv, height=0.5 * np.abs(conv).max(), distance=FS - 1)[
-            0
-        ]
+        peaks = sig.find_peaks(conv, height=0.5*np.abs(conv).max(), distance=FS - 1)[0]
         return peaks
 
-    def _identify_Rs(self, frame_start_index, num_symbols, sampling_error):
+    def _identify_Rs(self, data_start_index, num_symbols, error_per_symbol):
         Rs = []
-        error_per_symbols = sampling_error / num_symbols
 
         for i in range(num_symbols):
             start = (
-                frame_start_index + L + int(np.round((L + N + error_per_symbols) * i))
+                data_start_index + L + int(np.round((L + N + error_per_symbol) * i))
             )
             end = start + N
             r = self.received_signal[start:end]
@@ -201,18 +240,46 @@ class Transmission:
 
     def estimate_H(self):
         # Returns a channel estimate from the known and received OFDM symbols
-        H_est_start = self._complex_average(self.known_symbols_start)
-        H_est_end = self._complex_average(self.known_symbols_end)
+        H_est_start = self._complex_average(self.known_symbols_start, plot_each=True)
+        H_est_end = self._complex_average(self.known_symbols_end, plot_each=True)
         self.H_est = H_est_start
 
-    def _complex_average(self, known_symbols):
+    def _complex_average(self, known_symbols, plot_each=False):
         r = known_symbols.reshape((-1, N))
         R = np.fft.fft(r)
         # magnitudes = np.mean(np.abs(R / KNOWN_SYMBOL_BIG_X), axis=0)
         # angles = np.mean(np.angle(R / KNOWN_SYMBOL_BIG_X), axis=0)
         # return magnitudes * np.exp(1j * angles)
 
-        return np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
+        H_est_matrix = R / KNOWN_SYMBOL_BIG_X
+        H_est = np.mean(H_est_matrix, axis=0)
+
+        if plot_each:
+            freqs = np.linspace(0, FS, N)
+            fig, axs = plt.subplots(2, 5)
+            for i in range(axs.shape[1]-1):
+                axs[0,i].set_title(f"H_est from known OFDM {i}")
+                
+                axs[0,i].plot(freqs, 10 * np.log10(np.abs(H_est_matrix[i,:])))
+                axs[0,i].set_xlabel("Freq. [Hz]")
+                axs[0,i].set_ylabel("Mag. [dB]")
+
+                axs[1,i].scatter(freqs, np.angle(H_est_matrix[i,:]), marker=".")
+                axs[1,i].set_xlabel("Freq. [Hz]")
+                axs[1,i].set_ylabel("Phase [rad]")
+            
+            axs[0,4].set_title("H_est from average")
+            
+            axs[0,4].plot(freqs, 10 * np.log10(np.abs(H_est)))
+            axs[0,4].set_xlabel("Freq. [Hz]")
+            axs[0,4].set_ylabel("Phase [rad]")
+
+            axs[1,4].scatter(freqs, np.angle(H_est_matrix[i,:]), marker=".")
+            axs[1,4].set_xlabel("Freq. [Hz]")
+            axs[1,4].set_ylabel("Phase [rad]")
+            plt.show()
+
+        return H_est
 
     def estimate_Xhats(self):
         self.Xhats = []
@@ -281,6 +348,23 @@ class Transmission:
 
         return phase_linear_trend
 
+    def _check_decoding(self, i):
+        get_sign_tuple = lambda x: (np.sign(x.real), np.sign(x.imag))
+        num_correct = 0
+
+        Xhat = self.Xhats[i]
+        X = self.source_chunks[i]
+        assert len(Xhat) == len(X)
+        
+        for i in range(len(Xhat)):
+            if get_sign_tuple(Xhat[i]) == get_sign_tuple(X[i]):
+                num_correct += 1
+        
+        proportion_correct = num_correct/len(Xhat)
+
+        # breakpoint()
+        return proportion_correct
+
     def sync_correct(self, plot=False):
         phase_trend = self._find_drift(plot)
         self.H_est *= np.exp(-1.0j * phase_trend)
@@ -302,13 +386,16 @@ class Transmission:
         plt.show()
 
     def plot_decoded_symbols(self, i=-1):
+        proportion_correct = self._check_decoding(i=i)
+        # print(f"Proportion correct = {proportion_correct}")
+
         # Plots decoded symbols coloured by frequency bin
         X = self.Xhats[i]
         plt.scatter(
             X.real, X.imag, c=np.arange(len(X)), cmap="gist_rainbow_r", marker="."
         )
 
-        plt.title("Decoded constellation symbols")
+        plt.title(f"Decoded constellation values for symbol {i}\nProportion correct = {proportion_correct}")
         plt.axhline(0, color="black", linestyle=":")
         plt.axvline(0, color="black", linestyle=":")
         plt.xlabel("Re")
@@ -318,21 +405,6 @@ class Transmission:
 
         plt.show()
 
-    def mse_decode(self, i=-1):
-        get_sign_tuple = lambda x: (np.sign(x.real), np.sign(x.imag))
-        num_correct = 0
-
-        Xhat = self.Xhats[i]
-        X = self.source_chunks[i]
-        assert len(Xhat) == len(X)
-        
-        for i, val in enumerate(Xhat):
-            if get_sign_tuple(val) == get_sign_tuple(X[i]):
-                num_correct += 1
-        
-        proportion_correct = num_correct/len(Xhat)
-        print(f"Proportion correct: {proportion_correct}")
-        # breakpoint()
 
 
 n = 25
@@ -346,12 +418,12 @@ transmission = Transmission(source)
 transmission.load_signals()
 
 # Initial synchronisation
-transmission.synchronise(plot=True)
+transmission.synchronise(offset=0, plot=True)
 transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
 transmission.plot_decoded_symbols()
-transmission.mse_decode()
+# transmission.mse_decode()
 
 # Correct synchronisation for drift
 # print("2nd pass:")
