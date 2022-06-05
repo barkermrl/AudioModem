@@ -1,8 +1,19 @@
 from pathlib import Path
+from bitarray import bitarray
 import struct
+import numpy as np
+import ldpc_jossy.py.ldpc as ldpc
+
+CONSTELLATION_MAP = {
+    "00": complex(1 / np.sqrt(2), 1 / np.sqrt(2)),
+    "01": complex(-1 / np.sqrt(2), 1 / np.sqrt(2)),
+    "11": complex(-1 / np.sqrt(2), -1 / np.sqrt(2)),
+    "10": complex(1 / np.sqrt(2), -1 / np.sqrt(2)),
+}
+
 
 class createFile:
-    def __init__(self, tx_file : str):
+    def __init__(self, tx_file: str):
         self.filename = tx_file
 
         self.header = self._create_header()
@@ -18,16 +29,18 @@ class createFile:
             Null terminator                             1 byte
         then L bytes of data
         """
-        
+
         # Length of data
-        filelength_bytes = Path( self.filename ).stat().st_size
-        encoded_filelength = struct.pack( "<L", filelength_bytes )  # "<L" is 4 byte little endian
+        filelength_bytes = Path(self.filename).stat().st_size
+        encoded_filelength = struct.pack(
+            "<L", filelength_bytes
+        )  # "<L" is 4 byte little endian
 
         # Filename in ascii
-        encoded_filename = self.filename.encode( encoding="ascii", errors="ignore" )
+        encoded_filename = self.filename.encode(encoding="ascii", errors="ignore")
 
         # Null terminator
-        null = "\0".encode( encoding="ascii", errors="ignore" )
+        null = "\0".encode(encoding="ascii", errors="ignore")
 
         header = encoded_filelength + encoded_filename + null
 
@@ -37,11 +50,9 @@ class createFile:
         """
         Turn file data into L bytes
         """
-        file = open( self.filename, "rb" )
+        file = open(self.filename, "rb")
         data = file.read()
         file.close()
-
-        data = data
 
         return data
 
@@ -56,7 +67,43 @@ class createFile:
 
         return padded_file
 
-f = createFile("frenzy.ppm")
-pf = f.padded
 
-print(pf)
+def save_bits():
+    f = createFile("group5.ppm")
+    pf = f.padded
+
+    a = bitarray(endian="little")
+    a.frombytes(pf)
+    bits = a.tolist()
+
+    c = ldpc.code(standard="802.16", z=64, rate="1/2")
+
+    num_extra_bits = (c.K - len(bits) % c.K) % c.K
+    bits.extend([0] * num_extra_bits)
+
+    source = [bits[i : i + c.K] for i in range(0, len(bits), c.K)]
+
+    codewords = []
+
+    for row in source:
+        codewords.extend(list(c.encode(np.array(row))))
+
+    assert len(codewords) / len(bits) == 2
+    codewords = np.array(codewords)
+    np.save("frenzy.npy", codewords)
+
+
+def save_constellation_values():
+    codewords = np.load("frenzy.npy")
+    num_values = len(codewords) // 2
+    constellation_values = np.zeros(num_values, dtype=complex)
+    for i in range(num_values):
+        key = str(codewords[2 * i]) + str(codewords[2 * i + 1])
+        constellation_values[i] = CONSTELLATION_MAP[key]
+
+    constellation_values = np.array(constellation_values)
+    np.save("frenzy_constellation_values.npy", codewords)
+
+
+save_bits()
+save_constellation_values()
