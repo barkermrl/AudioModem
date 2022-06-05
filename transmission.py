@@ -129,23 +129,26 @@ class Transmission:
     def synchronise(self, offset=5, plot=False):
         # End of chirp is half a second after chirp.
         # Offset gives the number of samples to shift back by to ensure you're sampling early.
-        peaks = np.sort(self._find_chirp_peaks())
-        print(peaks)
-
-        # peaks should be length 4 (1 chirp at the start and end of signal)
+        # Peaks should be length 4 (1 chirp at the start and end of signal)
         # In addition, each frame starts and ends with a chirp.
+        
+        peaks = np.sort(self._find_chirp_peaks())
+        assert len(peaks) == 4
+        
         frame_start_index = peaks[1] - len(CHIRP) // 2 + len(PREAMBLE) - offset
         frame_end_index = peaks[-2] + len(CHIRP) // 2 - len(ENDAMBLE) - offset
 
-        num_symbols = np.int(np.round((frame_end_index - frame_start_index) / (L + N)))
+        num_symbols = int(np.round((frame_end_index - frame_start_index) / (L + N)))
 
         sampling_error = frame_end_index - frame_start_index - num_symbols * (L + N)
 
-        print(
-            "Peaks: {}\nFrame start: {}\nFrame end: {}\nNum symbols: {}\nSampling error: {}".format(
-                peaks, frame_start_index, frame_end_index, num_symbols, sampling_error
-            )
-        )
+        print(f"""
+            Peaks: {peaks}
+            Frame start: {frame_start_index}
+            Frame end: {frame_end_index}
+            Num symbols: {num_symbols}
+            Sampling error: {sampling_error}
+        """)
 
         self.Rs = self._identify_Rs(frame_start_index, num_symbols, sampling_error)
 
@@ -200,7 +203,7 @@ class Transmission:
         # Returns a channel estimate from the known and received OFDM symbols
         H_est_start = self._complex_average(self.known_symbols_start)
         H_est_end = self._complex_average(self.known_symbols_end)
-        self.H_est = (H_est_start + H_est_end) / 2
+        self.H_est = H_est_start
 
     def _complex_average(self, known_symbols):
         r = known_symbols.reshape((-1, N))
@@ -295,7 +298,7 @@ class Transmission:
         ax_right.set_xlabel("Frequency [Hz]")
         ax_right.set_ylabel("Phase [rad]")
 
-        print(np.angle(self.H_est))
+        # print(np.angle(self.H_est))
         plt.show()
 
     def plot_decoded_symbols(self, i=-1):
@@ -316,9 +319,20 @@ class Transmission:
         plt.show()
 
     def mse_decode(self, i=-1):
+        get_sign_tuple = lambda x: (np.sign(x.real), np.sign(x.imag))
+        num_correct = 0
+
         Xhat = self.Xhats[i]
         X = self.source_chunks[i]
-        breakpoint()
+        assert len(Xhat) == len(X)
+        
+        for i, val in enumerate(Xhat):
+            if get_sign_tuple(val) == get_sign_tuple(X[i]):
+                num_correct += 1
+        
+        proportion_correct = num_correct/len(Xhat)
+        print(f"Proportion correct: {proportion_correct}")
+        # breakpoint()
 
 
 n = 25
@@ -327,7 +341,7 @@ source = np.random.choice(VALUES, N_BINS * n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
-# transmission.record_signal(afplay=True)
+# transmission.record_signal()
 # transmission.save_signals()
 transmission.load_signals()
 
