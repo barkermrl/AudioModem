@@ -401,13 +401,13 @@ source = np.random.choice(VALUES, N_BINS * n)
 np.seterr(all="ignore")  # Supresses runtime warnings
 
 transmission = Transmission(source)
+
 # transmission.record_signal()
 # transmission.save_signals()
 transmission.load_signals()
 
 # Initial synchronisation
 transmission.synchronise(plot=True)
-# transmission.absolute_violation()
 transmission.estimate_H()
 transmission.estimate_Xhats()
 transmission.plot_channel()
@@ -424,6 +424,7 @@ for i in range(n):
 # transmission.sync_correct()
 # transmission.estimate_H()
 # transmission.estimate_Xhats()
+
 # transmission.plot_channel()
 # transmission.plot_decoded_symbols()
 
