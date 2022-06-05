@@ -426,6 +426,7 @@ class Transmission:
 
 
 n = 25
+np.random.seed(0)
 source = np.random.choice(VALUES, N_BINS * n)
 
 np.seterr(all="ignore")  # Supresses runtime warnings
