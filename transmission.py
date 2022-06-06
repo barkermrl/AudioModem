@@ -170,43 +170,13 @@ class Transmission:
         peaks = np.sort(self._find_chirp_peaks())
         assert len(peaks) == 4, f"Found {len(peaks)} peaks, expected 4"
 
-        # Get starting known OFDM blocks from chirp synchronisation
-        first_known_ofdm_start_index = peaks[1] - offset
-        first_known_ofdm_end_index = (
-            first_known_ofdm_start_index + len(PREAMBLE) - len(CHIRP)
-        )
-
-        # Get ending known OFDM blocks from chirp synchronisation
-        last_known_ofdm_end_index = peaks[2] - len(CHIRP) - offset
-        last_known_ofdm_start_index = (
-            last_known_ofdm_end_index - len(ENDAMBLE) + len(CHIRP)
-        )
-
         # Find the number of symbols from the samples between the known OFDM start and end indices
         num_symbols = int(
             np.round(
-                (last_known_ofdm_start_index - first_known_ofdm_end_index) / (L + N)
+                (peaks[2] - peaks[1] - len(ENDAMBLE) - len(PREAMBLE) + len(CHIRP))
+                / (L + N)
             )
         )
-
-        # Estimate where the ending known OFDM blocks are from the starting blocks and number of symbols
-        last_known_ofdm_start_index_est = first_known_ofdm_end_index + num_symbols * (
-            L + N
-        )
-        last_known_ofdm_end_index_est = (
-            last_known_ofdm_start_index_est + len(ENDAMBLE) - len(CHIRP)
-        )
-
-        # Find the sampling error from the difference in the location of the last known OFDM block
-        # A negative error means we've received too few samples
-        error = last_known_ofdm_start_index - last_known_ofdm_start_index_est
-        error_per_sample = error / (peaks[2] - peaks[1] - len(ENDAMBLE))
-
-        self.drift_per_sample = error_per_sample
-
-        print(error_per_sample, sampling_drift)
-
-        self.drift_per_sample *= 1
 
         if print_results:
             print(
@@ -253,20 +223,19 @@ class Transmission:
 
             plt.show()
 
-        # Pull out the known OFDM blocks from the received signal
-        self.known_symbols_start = self.received_signal[
-            first_known_ofdm_start_index + L : first_known_ofdm_end_index
-        ]
-        self.known_symbols_end = self.received_signal[
-            last_known_ofdm_start_index + L : last_known_ofdm_end_index
-        ]
-        self.known_symbols_end_est = self.received_signal[
-            last_known_ofdm_start_index_est + L : last_known_ofdm_end_index_est
-        ]
+        # Resample
+        expected_length_signal = (
+            len(PREAMBLE) - len(CHIRP) + num_symbols * (L + N) + len(ENDAMBLE)
+        )
+        self.resampled_signal = sig.resample(
+            self.received_signal[peaks[1] : peaks[2]], expected_length_signal
+        )
 
         # Pull out received OFDM block
-        self.Rs = self._identify_Rs(first_known_ofdm_end_index, num_symbols)
-        self.first_known_ofdm_end_index = first_known_ofdm_end_index
+        self.known_ofdm_symbols = self.resampled_signal[L : L + 4 * N]
+
+        self.data_ofdm_symbols = self.resampled_signal[L + 4 * N : -len(ENDAMBLE)]
+        self.Rs = self._identify_Rs(num_symbols)
 
     def _find_chirp_peaks(self):
         # window = lambda x: x * np.hanning(len(x))
@@ -279,23 +248,13 @@ class Transmission:
         ]
         return peaks
 
-    def _identify_Rs(self, first_known_ofdm_end_index, num_symbols):
+    def _identify_Rs(self, num_symbols):
         Rs = []
-        # 0 drift at the end of the chirp
-        drift_at_known_ofdm_end = int(
-            np.round(self.drift_per_sample * (L + len(self.known_symbols_start)))
-        )
-        drift_per_symbol = self.drift_per_sample * (L + N)
 
         for i in range(num_symbols):
-            start = (
-                first_known_ofdm_end_index
-                + L
-                + drift_at_known_ofdm_end
-                + int(np.round((L + N + drift_per_symbol) * i))
-            )
+            start = first_known_ofdm_end_index + L + i * (L + N)
             end = start + N
-            r = self.received_signal[start:end]
+            r = self.data_ofdm_symbols[start:end]
             R = np.fft.fft(r)
             Rs.append(R)
         return Rs
