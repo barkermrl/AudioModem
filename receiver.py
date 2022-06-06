@@ -80,14 +80,10 @@ for frame in transmission.get_frames():
     transmission.received_signal = frame
     transmission.synchronise()
 
-    if transmission.ours == True:
-        transmission.estimate_H()
-        transmission.estimate_Xhats()
-    else:
-        transmission.estimate_channel()
-        # plt.plot(np.abs(transmission.H_est))
-        # plt.show()
-        transmission.Xhats_estimate()
+ 
+    transmission.estimate_H()
+    transmission.estimate_Xhats()
+
 
     print(len(transmission.Xhats))
 
