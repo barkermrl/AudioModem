@@ -1,6 +1,7 @@
 # Import libraries
 import matplotlib.pyplot as plt
 import numpy as np
+from pytest import FixtureRequest
 import scipy.signal as sig
 import scipy.io.wavfile as wav
 from scipy.optimize import minimize
@@ -177,7 +178,7 @@ class Transmission:
         )
 
         # Get ending known OFDM blocks from chirp synchronisation
-        last_known_ofdm_end_index = peaks[-2] - len(CHIRP) - offset
+        last_known_ofdm_end_index = peaks[2] - len(CHIRP) - offset
         last_known_ofdm_start_index = (
             last_known_ofdm_end_index - len(ENDAMBLE) + len(CHIRP)
         )
@@ -197,14 +198,36 @@ class Transmission:
             last_known_ofdm_start_index_est + len(ENDAMBLE) - len(CHIRP)
         )
 
+        start_block = self.received_signal[first_known_ofdm_start_index:first_known_ofdm_end_index]
+        end_block = self.received_signal[last_known_ofdm_start_index_est:last_known_ofdm_end_index_est]
+        cc = sig.correlate(start_block, end_block, mode='same')
+        maximum_cc = np.argmax(cc)
+        t = np.linspace(maximum_cc-2,maximum_cc+3, 5)
+        quad_fit = np.polyfit(t, cc[maximum_cc-2:maximum_cc+3], 2)
+        sampling_drift = -quad_fit[1]/(2*quad_fit[0]) - start_block.size/2
+        sampling_drift= -sampling_drift/(last_known_ofdm_start_index - first_known_ofdm_start_index)
+        self.num_symbols = num_symbols
+        true_drift_to_endfix = ((first_known_ofdm_end_index- first_known_ofdm_end_index) + (self.num_symbols*(N+L)))*sampling_drift
+        true_endfix_start = round(last_known_ofdm_start_index_est + true_drift_to_endfix)
+        true_endfix_end = true_endfix_start + L + 4*N
+        self.drift_gap = true_endfix_start - last_known_ofdm_start_index_est
+
+        self.last_known_symbol = self.received_signal[true_endfix_start : true_endfix_end]
+
         # Find the sampling error from the difference in the location of the last known OFDM block
         # A negative error means we've received too few samples
         error = last_known_ofdm_start_index - last_known_ofdm_start_index_est
-        error_per_sample = error / (peaks[-2] - peaks[1])
-        error_per_sample *= 1.1
-        # print(error_per_sample)
+        error_per_sample = error / (peaks[2] - peaks[1] - len(ENDAMBLE) )
+        
+        if self.ours == False:
+            self.drift_per_sample = sampling_drift
+        else:
+            self.drift_per_sample = error_per_sample
 
-        self.drift_per_sample = error_per_sample
+        print(error_per_sample, sampling_drift)	
+        
+        self.drift_per_sample *= 1
+
 
         if print_results:
             print(
@@ -264,6 +287,8 @@ class Transmission:
 
         # Pull out received OFDM block
         self.Rs = self._identify_Rs(first_known_ofdm_end_index, num_symbols)
+        self.first_known_ofdm_end_index = first_known_ofdm_end_index
+        
 
     def _find_chirp_peaks(self):
         # window = lambda x: x * np.hanning(len(x))
@@ -312,7 +337,83 @@ class Transmission:
             R_block *= drift_correction
 
         self.H_est = np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
-        self.vars = np.var(R / KNOWN_SYMBOL_BIG_X, axis=0).real
+        self.vars = np.var(np.split(self.known_symbols_start,4), axis=0)
+        self.vars = self.vars/(self.H_est * np.conjugate(self.H_est))
+        self.vars = np.tile(self.vars[FREQ_MIN:FREQ_MAX].real, self.num_symbols)
+
+    def estimate_channel(self):
+
+        drift_per_sample = self.drift_per_sample
+        drift = 0
+        known_blocks = self.known_symbols_start
+        gains = np.zeros(N, dtype=np.complex128)
+        known_blocks = np.split(known_blocks, 4)
+
+        for ind, block in enumerate(known_blocks):
+            block_drift = drift + drift_per_sample*N*ind
+            gains += self.estimate_gains_from_block(block, block_drift)
+
+        channel_fft = gains / 4
+        self.H_est = channel_fft
+        self.vars = np.var(known_blocks, axis=0)
+        self.vars = self.vars/(channel_fft * np.conjugate(channel_fft))
+        #self.vars = np.tile(self.vars[FREQ_MIN:FREQ_MAX].real, self.num_symbols)
+
+        drift = (len(PREAMBLE) + (N+L)*self.num_symbols)*self.drift_per_sample
+        drift_to_endfix = drift - self.drift_gap
+        drift = drift_to_endfix
+        known_blocks = self.last_known_symbol[L:]
+        gains = np.zeros(N, dtype=np.complex128)
+        known_blocks = np.split(known_blocks, 4)
+
+        for ind, block in enumerate(known_blocks):
+            block_drift = drift + drift_per_sample*N*ind
+            gains += self.estimate_gains_from_block(block, block_drift)
+
+        channel_fft = gains / 4
+        self.H_est = (self.H_est + channel_fft)/2
+        self.vars = (self.vars + np.var(known_blocks, axis = 0)/(channel_fft*np.conjugate(channel_fft)))/2
+        self.vars = np.tile(self.vars[FREQ_MIN:FREQ_MAX].real, self.num_symbols)
+
+
+
+
+
+    def estimate_gains_from_block(self, block, block_drift):
+
+        block_fft = np.fft.fft(block, N)
+        r = np.concatenate([
+            np.arange(0, N//2, 1)/N,[0], np.arange(-1, -N//2, -1)[::-1]/N
+        ])
+        drift_corrected = block_fft * np.exp(2j * np.pi * block_drift * r)
+
+        return drift_corrected/KNOWN_SYMBOL_BIG_X
+
+
+    def Xhats_estimate(self):
+        self.Xhats = []
+        ofdm_blocks = self.split_list(self.received_signal[ self.first_known_ofdm_end_index : self.first_known_ofdm_end_index + (N+L) * self.num_symbols ], N+L)
+        frame_drift = len(PREAMBLE) * self.drift_per_sample
+        total_drift_in_data = self.drift_per_sample * len(ofdm_blocks)
+        drifts = np.linspace(frame_drift, frame_drift + total_drift_in_data, len(ofdm_blocks))
+        for drift, block in zip(drifts, ofdm_blocks):
+            block_without_prefix = block[L:]
+            dft_block = np.fft.fft(block_without_prefix, N)
+
+            equalized_dft = dft_block / self.H_est
+            equalized_dft *= np.exp(2j * np.pi * drift * np.linspace(0 , 1, N))
+
+            self.Xhats.append(equalized_dft[FREQ_MIN:FREQ_MAX])
+
+
+    def split_list(self, data, length):
+        index = 0
+        data = data.tolist()
+        ls = []
+        while index < len(data):
+            ls.append(data[index : index + length])
+            index += length
+        return ls
 
     def estimate_Xhats(self):
         self.Xhats = []

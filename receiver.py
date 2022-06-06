@@ -71,7 +71,7 @@ transmission = Transmission(np.zeros(N_BINS))
 # transmission.record_signal()
 # transmission.save_signals()
 transmission.load_signals()
-
+transmission.ours = True
 # Put Xhats, vars from each for loop iteration in here
 all_constellation_vals = []
 all_vars = []
@@ -79,12 +79,28 @@ all_vars = []
 for frame in transmission.get_frames():
     transmission.received_signal = frame
     transmission.synchronise()
-    transmission.estimate_H()
-    transmission.estimate_Xhats()
-    # print(transmission.Xhats)
+    
+    if transmission.ours == True:
+        transmission.estimate_H()
+        transmission.estimate_Xhats()
+    else:
+        transmission.estimate_channel()
+        #plt.plot(np.abs(transmission.H_est))
+        #plt.show()
+        transmission.Xhats_estimate()
+
+    
+    print(len(transmission.Xhats))
 
     for i in transmission.Xhats:
         all_constellation_vals += i.tolist()
+        plt.scatter(i.real, i.imag, c = np.arange(len(i)), s = 1)
+        plt.xlim(-5,5)
+        plt.ylim(-5,5)
+        plt.colorbar()
+        plt.show()
+        
+
     all_vars += transmission.vars.tolist()
 
 # print(len(all_constellation_vals), all_constellation_vals)
@@ -108,17 +124,17 @@ bit_array = []
 for codeword, var in zip(constellation_vals_no_padding, all_vars_no_padding):
     
     # Find LLRs from codewords
-    llrs = LDPC_utils.get_llr(codeword, var)
+    llrs = np.array(LDPC_utils.get_llr(codeword, var), dtype=np.float64)
     
     # Put LLRs into decoder, get out binary file
     u_hats = LDPC_utils.decode(llrs, c)
-    bits += u_hats
+    bit_array += u_hats
 
 data_bits = bitarray(endian='little')
 data_bits.extend(u_hats)
-
 # Turn bit array into bytes
 data_bytes = data_bits.tobytes()
+print(data_bytes)
 
 # Extract header from byte array
 null_terminator_index = 0
@@ -134,8 +150,7 @@ filelength_asbytes = header[:4]
 filelength_asint = int.from_bytes(filelength_asbytes, byteorder='little')
 
 filename = header[4:]
-print(filename)
 
 # Turn into file
 filedata = data_bytes[1 + null_terminator_index : 1 + null_terminator_index + filelength_asint]
-write(f"{filename}", filedata)
+#write(f"{filename}", filedata)
