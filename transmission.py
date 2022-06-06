@@ -149,15 +149,19 @@ class Transmission:
 
     def get_frames(self):
         peaks = self._find_chirp_peaks() - len(CHIRP)
-
+        plt.plot(self.received_signal)
+        plt.vlines(peaks, 0, np.max(self.received_signal), color = 'r')
+        plt.show()
+        print(f"Number of peaks found = {len(peaks)}")
+        
         num_frames = (len(peaks) - 2) / 2
+        print(f"Number of frames = {num_frames}")
         frames = []
-
         # Extract each frame
         for i in range(int(num_frames)):
-            frame = self.received_signal[peaks[i] : peaks[i + 3] + len(CHIRP)]
+            frame = self.received_signal[peaks[2*i] : peaks[2*i + 3] + len(CHIRP)]
             frames.append(frame)
-
+        print(f'Number of frames extracted = {len(frames)}')
         # frames is a list of np.ndarrays
         return frames
 
@@ -177,6 +181,8 @@ class Transmission:
                 / (L + N)
             )
         )
+        self.num_symbols = num_symbols
+        print(f"Number of symbols in frame {num_symbols}")
 
         if print_results:
             print(
@@ -232,9 +238,10 @@ class Transmission:
         )
 
         # Pull out received OFDM block
-        self.known_ofdm_symbols = self.resampled_signal[L : L + 4 * N]
-
-        self.data_ofdm_symbols = self.resampled_signal[L + 4 * N : -len(ENDAMBLE)]
+        self.known_ofdm_symbols_start = self.resampled_signal[L : L + 4 * N]
+        self.known_ofdm_symbols_end = self.resampled_signal[-len(ENDAMBLE) + L:-len(CHIRP)]
+        print(f"Number of known symbols {len(self.known_ofdm_symbols_end)/N}")
+        self.data_ofdm_symbols = self.resampled_signal[L + 4 * N : -len(ENDAMBLE)] # including guards
         self.Rs = self._identify_Rs(num_symbols)
 
     def _find_chirp_peaks(self):
@@ -250,9 +257,8 @@ class Transmission:
 
     def _identify_Rs(self, num_symbols):
         Rs = []
-
         for i in range(num_symbols):
-            start = first_known_ofdm_end_index + L + i * (L + N)
+            start = L + i * (L + N)
             end = start + N
             r = self.data_ofdm_symbols[start:end]
             R = np.fft.fft(r)
@@ -261,45 +267,28 @@ class Transmission:
 
     def estimate_H(self):
         # Returns a channel estimate from the known and received OFDM symbols
-        r = self.known_symbols_start.reshape((-1, N))
-        R = np.fft.fft(r)
-
-        temp = np.concatenate(
-            [[0], np.arange(1, N // 2) / N, [0], np.arange(1 - N // 2, 0) / N]
-        )
-
-        for i, R_block in enumerate(R):
-            drift_at_block_start = self.drift_per_sample * (L + N * i)
-            drift_correction = np.exp(2j * np.pi * drift_at_block_start * temp)
-            R_block *= drift_correction
-
-        self.H_est = np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
-        self.vars = np.var(np.split(self.known_symbols_start, 4), axis=0)
-        self.vars = self.vars / (self.H_est * np.conjugate(self.H_est))
+        first_known_symbol = self.known_ofdm_symbols_start.reshape((-1, N))
+        last_known_symbol = self.known_ofdm_symbols_end.reshape((-1,N))
+        dft_list = []
+        for first, last in zip(first_known_symbol, last_known_symbol):
+            first_dft = np.fft.fft(first, N)
+            last_dft = np.fft.fft(last,N)
+            dft_list.append(first_dft)
+            dft_list.append(last_dft)
+        
+        self.H_est = np.mean(dft_list, axis = 0)/KNOWN_SYMBOL_BIG_X
+        self.vars = np.var(dft_list, axis=0)
         self.vars = np.tile(self.vars[FREQ_MIN:FREQ_MAX].real, self.num_symbols)
 
     def Xhats_estimate(self):
         self.Xhats = []
-        ofdm_blocks = self.split_list(
-            self.received_signal[
-                self.first_known_ofdm_end_index : self.first_known_ofdm_end_index
-                + (N + L) * self.num_symbols
-            ],
-            N + L,
-        )
-        frame_drift = len(PREAMBLE) * self.drift_per_sample
-        total_drift_in_data = self.drift_per_sample * len(ofdm_blocks)
-        drifts = np.linspace(
-            frame_drift, frame_drift + total_drift_in_data, len(ofdm_blocks)
-        )
-        for drift, block in zip(drifts, ofdm_blocks):
-            block_without_prefix = block[L:]
-            dft_block = np.fft.fft(block_without_prefix, N)
-
-            equalized_dft = dft_block / self.H_est
-            equalized_dft *= np.exp(2j * np.pi * drift * np.linspace(0, 1, N))
-
-            self.Xhats.append(equalized_dft[FREQ_MIN:FREQ_MAX])
+        ofdm_blocks = np.split(self.data_ofdm_symbols, self.num_symbols)
+        for block in ofdm_blocks:
+            block = block[L:]
+            block_dft = np.fft.fft(block)
+            equalized_dft = block_dft/self.H_est
+            ofdm_symbs = equalized_dft[FREQ_MIN:FREQ_MAX].tolist()
+            self.Xhats += [ofdm_symbs]
 
     def split_list(self, data, length):
         index = 0

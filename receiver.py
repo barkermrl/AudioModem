@@ -70,30 +70,36 @@ ENDAMBLE = np.concatenate(
 transmission = Transmission(np.zeros(N_BINS))
 # transmission.record_signal()
 # transmission.save_signals(t_fname="files/tmp.wav")
-transmission.load_signals(r_fname="files/frenzy_test.wav")
-transmission.ours = True
+#transmission.load_signals(r_fname="files/frenzy_test.wav")
+transmission.received_signal = np.load('Group4_rec.npy')
+#transmission.received_signal = np.load('Group9_rec.npy')
 # Put Xhats, vars from each for loop iteration in here
 all_constellation_vals = []
 all_vars = []
 
-for frame in transmission.get_frames():
+for ind_frame, frame in enumerate(transmission.get_frames()):
+    frame = frame/np.max(frame)
+    plt.title(f'Frame {ind_frame}')
+    plt.plot(frame)
+    plt.show()
     transmission.received_signal = frame
     transmission.synchronise()
-
- 
     transmission.estimate_H()
-    transmission.estimate_Xhats()
+    transmission.Xhats_estimate()
 
-
-    print(len(transmission.Xhats))
-
-    for i in transmission.Xhats:
-        all_constellation_vals += i.tolist()
-        plt.scatter(i.real, i.imag, c=np.arange(len(i)), s=1)
-        plt.xlim(-5, 5)
-        plt.ylim(-5, 5)
-        plt.colorbar()
-        plt.show()
+    for block_number, block_xhats in enumerate(transmission.Xhats):
+        all_constellation_vals += block_xhats
+        #plt.title(f'{block_number}')
+        #plt.xlim(-5,5)
+        #plt.ylim(-5,5)
+        #plt.scatter(np.array(block_xhats).real, np.array(block_xhats).imag, s = 1, c = np.arange(len(block_xhats)))
+        #plt.show()
+        
+    plt.title(f'Received Symbols')
+    plt.xlim(-3,3)
+    plt.ylim(-3,3)
+    plt.scatter(np.array(all_constellation_vals).real, np.array(all_constellation_vals).imag, s = 1)
+    plt.show()
 
     all_vars += transmission.vars.tolist()
 
@@ -130,7 +136,7 @@ data_bits = bitarray(endian="little")
 data_bits.extend(bit_array)
 # Turn bit array into bytes
 data_bytes = data_bits.tobytes()
-print(data_bytes)
+print(data_bytes[:100])
 
 # Extract header from byte array
 null_terminator_index = 0
