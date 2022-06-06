@@ -68,10 +68,10 @@ ENDAMBLE = np.concatenate(
 )
 
 transmission = Transmission(np.zeros(N_BINS))
-# transmission.record_signal()
+transmission.record_signal()
 # transmission.save_signals(t_fname="files/tmp.wav")
 #transmission.load_signals(r_fname="files/frenzy_test.wav")
-transmission.received_signal = np.load('Group4_rec.npy')
+#transmission.received_signal = np.load('Group4_rec.npy')
 #transmission.received_signal = np.load('Group9_rec.npy')
 # Put Xhats, vars from each for loop iteration in here
 all_constellation_vals = []
