@@ -21,14 +21,14 @@ FREQ_MAX = 854
 # Get gap
 gap = np.zeros(FS)
 
+
 # Get source bits
 lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent ut risus ligula. Pellentesque quis ultrices arcu. Maecenas vulputate, ante vel mattis faucibus, lacus ex congue erat, at elementum nunc urna vitae eros. Donec id ultricies dui, eu varius eros. In luctus, mi sit amet sodales tincidunt, sem ligula bibendum elit, ut porta purus dui non lacus. Vivamus id eros maximus, dictum eros nec, lacinia justo. Aliquam lobortis vulputate libero vitae ornare. Proin luctus sed odio vel euismod. Duis scelerisque fringilla eleifend. Praesent orci nulla, tristique id magna in, varius pellentesque metus. Cras venenatis vitae ante eu ullamcorper. Mauris ac nisi convallis, malesuada mi quis, pellentesque sem. Maecenas ut ipsum at ligula congue efficitur eu at neque. Duis et egestas metus. Vivamus placerat purus tortor, a facilisis nibh malesuada id. Etiam sit amet lacinia mauris. Donec id placerat est. Mauris efficitur sed est sed ultricies. Vestibulum blandit condimentum arcu, in placerat risus. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia curae; Suspendisse consequat turpis magna, at fermentum velit pellentesque eget. Proin facilisis magna sed orci ultrices, vitae scelerisque libero pellentesque. Ut ex tortor, vestibulum sed dictum sed, volutpat et nisi. Cras in tincidunt tellus, ac pellentesque elit. Praesent ut turpis dignissim, interdum neque sed, dapibus leo. Nullam eu nisl est. Vestibulum commodo congue erat. Vestibulum sollicitudin purus sit amet nunc mattis, sit amet tempus mi faucibus. Phasellus imperdiet urna non sapien scelerisque, nec pretium ex aliquet. Nullam quis diam purus. Suspendisse velit orci, aliquet non tellus ut, porttitor volutpat velit. Nunc at ex molestie, vestibulum nisi id, pharetra lacus. Morbi eu volutpat sem. Etiam ullamcorper nunc a quam venenatis, nec varius magna posuere. Duis quis facilisis lorem. Etiam sed volutpat ligula. Nam ex ex, rhoncus id scelerisque vel, ultrices ac odio. Aenean sodales vulputate pretium. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia curae; Donec cursus dignissim ante, et condimentum diam interdum vitae. Sed porta mi sed risus ultricies, sit amet consequat augue mollis. Sed lacinia velit finibus, tincidunt diam eu, aliquet felis. Phasellus suscipit elementum rutrum. Nam pellentesque tincidunt ornare. Nunc feugiat placerat est et rutrum. Integer libero sapien, mollis ac leo vel, iaculis mattis augue. Donec non posuere arcu. Nam condimentum sagittis est et aliquam. Nunc tincidunt enim lectus, non euismod tortor pulvinar eu. Aliquam lobortis lectus eu tristique condimentum. Fusce quis tellus non turpis sollicitudin ornare vel eu purus. Nullam id diam ut libero tincidunt blandit. Curabitur et velit metus. Duis vel tristique massa, ac congue nisl. Cras sodales pharetra massa, at placerat enim sagittis nec. Sed aliquam nec mauris et ultrices. Nulla est est, congue non orci quis, pellentesque fringilla sapien. Nunc congue porta erat. Sed consectetur malesuada risus quis porttitor. Aenean tempor mauris fermentum consectetur pellentesque. Donec maximus laoreet quam. Morbi ac leo ante. Pellentesque commodo pulvinar ultrices. Donec suscipit vitae nulla ac dignissim. Morbi justo purus, fringilla sit amet sodales vitae, scelerisque id diam. Nulla in suscipit urna. Phasellus et mi sit amet eros aliquam facilisis id a nibh. In vestibulum dictum erat a consequat."
 lorem_bytes = bytes(lorem, encoding="utf-8")
 
 with open('group5.tiff', 'rb') as image:
     f = image.read()
-    frenzy_bytes = bytearray(f)
-
+    frenzy_bytes = bytes(f)
 
 a = bitarray(endian = 'little')
 #a.frombytes(lorem_bytes)
@@ -37,6 +37,27 @@ source_bits = []
 for i in a:
     source_bits.append(i)
 source_bits = np.array(source_bits)
+
+# Get header
+filename = 'group5.tiff'
+filelength = int(len(frenzy_bytes))
+
+header = bytearray()
+header.extend(bytes(filelength))
+header.extend(map(ord, filename))
+header.extend(b'\x00')
+
+a = bitarray(endian='little')
+a.frombytes(bytes(header))
+header = []
+for i in a:
+    header.append(i)
+header = np.array(header)
+source_bits = np.concatenate([
+    header, source_bits
+])
+print(source_bits)
+
 
 # Encode source bits
 c = lp.get_code()
@@ -126,7 +147,7 @@ signal += chirp.tolist()
 plt.plot(signal)
 plt.show()
 
-#wav.write('Lorem_test.wav', FS, np.array(signal).real)
+wav.write('frenzy.wav', FS, np.array(signal).real)
 print('Saved')
 
 def record_file(length, name):
@@ -141,4 +162,4 @@ def record_file(length, name):
     np.save(f'{name}.npy', r)
     print(f"Saved as {name}.npy")
 
-record_file(15, 'lorem_rec')
+#record_file(15, 'lorem_rec')

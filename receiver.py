@@ -71,9 +71,9 @@ transmission = Transmission(np.zeros(N_BINS))
 #transmission.record_signal()
 # transmission.save_signals(t_fname="files/tmp.wav")
 #transmission.load_signals(r_fname="files/frenzy_test.wav")
-#transmission.received_signal = np.load('Group4_rec.npy')
+transmission.received_signal = np.load('Group4_rec.npy')
 #transmission.received_signal = np.load('Group9_rec.npy')
-transmission.received_signal = np.load('Lorem_rec.npy')
+#transmission.received_signal = np.load('Lorem_rec.npy')
 # Put Xhats, vars from each for loop iteration in here
 all_constellation_vals = []
 all_vars = []
@@ -158,4 +158,7 @@ filename = header[4:]
 filedata = data_bytes[
     1 + null_terminator_index : 1 + null_terminator_index + filelength_asint
 ]
-# write(f"{filename}", filedata)
+
+f = open(filename, 'wb')
+f.write(filedata)
+f.close()
