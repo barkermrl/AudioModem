@@ -113,6 +113,7 @@ class Transmission:
 
         return np.concatenate(frames)
 
+
     def save_signals(self, t_fname="files/signal.wav", r_fname="files/received.wav"):
         wav.write(r_fname, FS, self.received_signal)
         wav.write(t_fname, FS, self.signal)
@@ -127,20 +128,38 @@ class Transmission:
         fs, self.received_signal = wav.read(r_fname)
         assert fs == FS
 
-    def record_signal(self, afplay=False):
+    def play_signal(self, afplay=False):
         if afplay:
             # Requires afplay to be installed as a terminal command!
             wav.write("tmp.wav", FS, self.signal)
             subprocess.Popen(["afplay", "tmp.wav"])
+        else:
+            wav.write("frenzy_signal.wav", FS, self.signal)
+            sd.play("frenzy_signal.wav", FS, blocking=True)
 
+    def record_signal(self):
         print("Recording...")
         self.received_signal = sd.rec(
-            int(1.5 * FS) + len(self.signal),
+            int(15 * FS),
             samplerate=FS,
             channels=1,
             blocking=True,
         ).flatten()
         print("Recording finished")
+
+    def get_frames(self):
+        peaks = self._find_chirp_peaks() - len(CHIRP)
+        
+        num_frames = (len(peaks) - 2)/2
+        frames = []
+        
+        # Extract each frame
+        for i in range(int(num_frames)):
+            frame = self.received_signal[ peaks[i] : peaks[i+3] + len(CHIRP) ]
+            frames.append(frame)
+        
+        # frames is a list of np.ndarrays
+        return frames
 
     def synchronise(self, offset=0, print_results = False, plot=False):
         # End of chirp is half a second after chirp.
@@ -182,7 +201,7 @@ class Transmission:
         # A negative error means we've received too few samples
         error = last_known_ofdm_start_index - last_known_ofdm_start_index_est
         error_per_sample = error / (peaks[-2] - peaks[1])
-        # error_per_sample *= 1.1
+        error_per_sample *= 1.1
         # print(error_per_sample)
 
         self.drift_per_sample = error_per_sample
@@ -293,6 +312,7 @@ class Transmission:
             R_block *= drift_correction
 
         self.H_est = np.mean(R / KNOWN_SYMBOL_BIG_X, axis=0)
+        self.vars = np.var(R / KNOWN_SYMBOL_BIG_X, axis=0).real
 
     def estimate_Xhats(self):
         self.Xhats = []
@@ -401,29 +421,3 @@ class Transmission:
         print(factor_opt, mmse_opt)
 
         self.drift_per_sample *= factor_opt
-
-
-source = np.load("frenzy_constellation_values.npy")
-
-num_extra_values = len(source) % N_BINS
-
-np.random.seed(0)
-source = np.append(source, np.random.choice(VALUES, num_extra_values))
-
-np.seterr(all="ignore")  # Supresses runtime warnings
-
-transmission = Transmission(source)
-
-transmission.record_signal(afplay=False)
-transmission.save_signals()
-# transmission.load_signals()
-
-transmission.synchronise(plot=True)
-transmission.estimate_H()
-transmission.estimate_Xhats()
-transmission.plot_channel()
-transmission.plot_decoded_symbols()
-
-print("Block no. -- Frac. decoded correctly")
-for i in range(n):
-    print(i, "          ", transmission._check_decoding(i=i))

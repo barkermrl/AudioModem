@@ -21,7 +21,7 @@ def encode(source_bits, c):
 def decode(lrr,c):
     app, it = c.decode(llr)
     u_hat = (app<0).toint()
-    return u_hat
+    return list(u_hat)
 def get_llr(constelation, sigma2s):
     assert len(constelation) == len(sigma2s)
     llr = []
