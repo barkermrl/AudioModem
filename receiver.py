@@ -69,8 +69,8 @@ ENDAMBLE = np.concatenate(
 
 transmission = Transmission(np.zeros(N_BINS))
 # transmission.record_signal()
-# transmission.save_signals()
-transmission.load_signals()
+# transmission.save_signals(t_fname="files/tmp.wav")
+transmission.load_signals(r_fname="files/frenzy_test.wav")
 transmission.ours = True
 # Put Xhats, vars from each for loop iteration in here
 all_constellation_vals = []
@@ -79,27 +79,25 @@ all_vars = []
 for frame in transmission.get_frames():
     transmission.received_signal = frame
     transmission.synchronise()
-    
+
     if transmission.ours == True:
         transmission.estimate_H()
         transmission.estimate_Xhats()
     else:
         transmission.estimate_channel()
-        #plt.plot(np.abs(transmission.H_est))
-        #plt.show()
+        # plt.plot(np.abs(transmission.H_est))
+        # plt.show()
         transmission.Xhats_estimate()
 
-    
     print(len(transmission.Xhats))
 
     for i in transmission.Xhats:
         all_constellation_vals += i.tolist()
-        plt.scatter(i.real, i.imag, c = np.arange(len(i)), s = 1)
-        plt.xlim(-5,5)
-        plt.ylim(-5,5)
+        plt.scatter(i.real, i.imag, c=np.arange(len(i)), s=1)
+        plt.xlim(-5, 5)
+        plt.ylim(-5, 5)
         plt.colorbar()
         plt.show()
-        
 
     all_vars += transmission.vars.tolist()
 
@@ -109,8 +107,10 @@ for frame in transmission.get_frames():
 remainder = len(all_constellation_vals) % c.K
 print(remainder)
 if remainder != 0:
-    constellation_vals_no_padding = all_constellation_vals[:len(all_constellation_vals) - remainder]
-    all_vars_no_padding = all_vars[:len(all_constellation_vals) - remainder]
+    constellation_vals_no_padding = all_constellation_vals[
+        : len(all_constellation_vals) - remainder
+    ]
+    all_vars_no_padding = all_vars[: len(all_constellation_vals) - remainder]
 else:
     constellation_vals_no_padding = all_constellation_vals
     all_vars_no_padding = all_vars
@@ -122,16 +122,16 @@ all_vars_no_padding = np.reshape(all_vars_no_padding, (-1, c.K))
 
 bit_array = []
 for codeword, var in zip(constellation_vals_no_padding, all_vars_no_padding):
-    
+
     # Find LLRs from codewords
     llrs = np.array(LDPC_utils.get_llr(codeword, var), dtype=np.float64)
-    
+
     # Put LLRs into decoder, get out binary file
     u_hats = LDPC_utils.decode(llrs, c)
     bit_array += u_hats
 
-data_bits = bitarray(endian='little')
-data_bits.extend(u_hats)
+data_bits = bitarray(endian="little")
+data_bits.extend(bit_array)
 # Turn bit array into bytes
 data_bytes = data_bits.tobytes()
 print(data_bytes)
@@ -142,15 +142,17 @@ for b in data_bytes:
     null_terminator_index += 1
     if b == "\0":
         break
-        
+
 
 header = data_bytes[:null_terminator_index]
 
 filelength_asbytes = header[:4]
-filelength_asint = int.from_bytes(filelength_asbytes, byteorder='little')
+filelength_asint = int.from_bytes(filelength_asbytes, byteorder="little")
 
 filename = header[4:]
 
 # Turn into file
-filedata = data_bytes[1 + null_terminator_index : 1 + null_terminator_index + filelength_asint]
-#write(f"{filename}", filedata)
+filedata = data_bytes[
+    1 + null_terminator_index : 1 + null_terminator_index + filelength_asint
+]
+# write(f"{filename}", filedata)
